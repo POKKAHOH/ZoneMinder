@@ -23,46 +23,47 @@
 
 #include "zm_sdp.h"
 
-#if LIBAVUTIL_VERSION_INT >= AV_VERSION_INT(51,2,1)
+#if (LIBAVCODEC_VERSION_CHECK(52, 64, 0, 64, 0) || LIBAVUTIL_VERSION_CHECK(50, 14, 0, 14, 0))
 SessionDescriptor::StaticPayloadDesc SessionDescriptor::smStaticPayloads[] = {
-    { 0, "PCMU",   AVMEDIA_TYPE_AUDIO,   CODEC_ID_PCM_MULAW,  8000,  1 },
-    { 3, "GSM",    AVMEDIA_TYPE_AUDIO,   CODEC_ID_NONE,       8000,  1 },
-    { 4, "G723",   AVMEDIA_TYPE_AUDIO,   CODEC_ID_NONE,       8000,  1 },
-    { 5, "DVI4",   AVMEDIA_TYPE_AUDIO,   CODEC_ID_NONE,       8000,  1 },
-    { 6, "DVI4",   AVMEDIA_TYPE_AUDIO,   CODEC_ID_NONE,       16000, 1 },
-    { 7, "LPC",    AVMEDIA_TYPE_AUDIO,   CODEC_ID_NONE,       8000,  1 },
-    { 8, "PCMA",   AVMEDIA_TYPE_AUDIO,   CODEC_ID_PCM_ALAW,   8000,  1 },
-    { 9, "G722",   AVMEDIA_TYPE_AUDIO,   CODEC_ID_NONE,       8000,  1 },
-    { 10, "L16",   AVMEDIA_TYPE_AUDIO,   CODEC_ID_PCM_S16BE,  44100, 2 },
-    { 11, "L16",   AVMEDIA_TYPE_AUDIO,   CODEC_ID_PCM_S16BE,  44100, 1 },
-    { 12, "QCELP", AVMEDIA_TYPE_AUDIO,   CODEC_ID_QCELP,      8000,  1 },
-    { 13, "CN",    AVMEDIA_TYPE_AUDIO,   CODEC_ID_NONE,       8000,  1 },
-    { 14, "MPA",   AVMEDIA_TYPE_AUDIO,   CODEC_ID_MP2,        -1,    -1 },
-    { 14, "MPA",   AVMEDIA_TYPE_AUDIO,   CODEC_ID_MP3,        -1,    -1 },
-    { 15, "G728",  AVMEDIA_TYPE_AUDIO,   CODEC_ID_NONE,       8000,  1 },
-    { 16, "DVI4",  AVMEDIA_TYPE_AUDIO,   CODEC_ID_NONE,       11025, 1 },
-    { 17, "DVI4",  AVMEDIA_TYPE_AUDIO,   CODEC_ID_NONE,       22050, 1 },
-    { 18, "G729",  AVMEDIA_TYPE_AUDIO,   CODEC_ID_NONE,       8000,  1 },
-    { 25, "CelB",  AVMEDIA_TYPE_VIDEO,   CODEC_ID_NONE,       90000, -1 },
-    { 26, "JPEG",  AVMEDIA_TYPE_VIDEO,   CODEC_ID_MJPEG,      90000, -1 },
-    { 28, "nv",    AVMEDIA_TYPE_VIDEO,   CODEC_ID_NONE,       90000, -1 },
-    { 31, "H261",  AVMEDIA_TYPE_VIDEO,   CODEC_ID_H261,       90000, -1 },
-    { 32, "MPV",   AVMEDIA_TYPE_VIDEO,   CODEC_ID_MPEG1VIDEO, 90000, -1 },
-    { 32, "MPV",   AVMEDIA_TYPE_VIDEO,   CODEC_ID_MPEG2VIDEO, 90000, -1 },
-    { 33, "MP2T",  AVMEDIA_TYPE_DATA,    CODEC_ID_MPEG2TS,    90000, -1 },
-    { 34, "H263",  AVMEDIA_TYPE_VIDEO,   CODEC_ID_H263,       90000, -1 },
-    { -1, "",      AVMEDIA_TYPE_UNKNOWN, CODEC_ID_NONE,       -1,    -1 }
+    { 0, "PCMU",   AVMEDIA_TYPE_AUDIO,   AV_CODEC_ID_PCM_MULAW,  8000,  1 },
+    { 3, "GSM",    AVMEDIA_TYPE_AUDIO,   AV_CODEC_ID_NONE,       8000,  1 },
+    { 4, "G723",   AVMEDIA_TYPE_AUDIO,   AV_CODEC_ID_NONE,       8000,  1 },
+    { 5, "DVI4",   AVMEDIA_TYPE_AUDIO,   AV_CODEC_ID_NONE,       8000,  1 },
+    { 6, "DVI4",   AVMEDIA_TYPE_AUDIO,   AV_CODEC_ID_NONE,       16000, 1 },
+    { 7, "LPC",    AVMEDIA_TYPE_AUDIO,   AV_CODEC_ID_NONE,       8000,  1 },
+    { 8, "PCMA",   AVMEDIA_TYPE_AUDIO,   AV_CODEC_ID_PCM_ALAW,   8000,  1 },
+    { 9, "G722",   AVMEDIA_TYPE_AUDIO,   AV_CODEC_ID_NONE,       8000,  1 },
+    { 10, "L16",   AVMEDIA_TYPE_AUDIO,   AV_CODEC_ID_PCM_S16BE,  44100, 2 },
+    { 11, "L16",   AVMEDIA_TYPE_AUDIO,   AV_CODEC_ID_PCM_S16BE,  44100, 1 },
+    { 12, "QCELP", AVMEDIA_TYPE_AUDIO,   AV_CODEC_ID_QCELP,      8000,  1 },
+    { 13, "CN",    AVMEDIA_TYPE_AUDIO,   AV_CODEC_ID_NONE,       8000,  1 },
+    { 14, "MPA",   AVMEDIA_TYPE_AUDIO,   AV_CODEC_ID_MP2,        -1,    -1 },
+    { 14, "MPA",   AVMEDIA_TYPE_AUDIO,   AV_CODEC_ID_MP3,        -1,    -1 },
+    { 15, "G728",  AVMEDIA_TYPE_AUDIO,   AV_CODEC_ID_NONE,       8000,  1 },
+    { 16, "DVI4",  AVMEDIA_TYPE_AUDIO,   AV_CODEC_ID_NONE,       11025, 1 },
+    { 17, "DVI4",  AVMEDIA_TYPE_AUDIO,   AV_CODEC_ID_NONE,       22050, 1 },
+    { 18, "G729",  AVMEDIA_TYPE_AUDIO,   AV_CODEC_ID_NONE,       8000,  1 },
+    { 25, "CelB",  AVMEDIA_TYPE_VIDEO,   AV_CODEC_ID_NONE,       90000, -1 },
+    { 26, "JPEG",  AVMEDIA_TYPE_VIDEO,   AV_CODEC_ID_MJPEG,      90000, -1 },
+    { 28, "nv",    AVMEDIA_TYPE_VIDEO,   AV_CODEC_ID_NONE,       90000, -1 },
+    { 31, "H261",  AVMEDIA_TYPE_VIDEO,   AV_CODEC_ID_H261,       90000, -1 },
+    { 32, "MPV",   AVMEDIA_TYPE_VIDEO,   AV_CODEC_ID_MPEG1VIDEO, 90000, -1 },
+    { 32, "MPV",   AVMEDIA_TYPE_VIDEO,   AV_CODEC_ID_MPEG2VIDEO, 90000, -1 },
+    { 33, "MP2T",  AVMEDIA_TYPE_DATA,    AV_CODEC_ID_MPEG2TS,    90000, -1 },
+    { 34, "H263",  AVMEDIA_TYPE_VIDEO,   AV_CODEC_ID_H263,       90000, -1 },
+    { -1, "",      AVMEDIA_TYPE_UNKNOWN, AV_CODEC_ID_NONE,       -1,    -1 }
 };
 
 SessionDescriptor::DynamicPayloadDesc SessionDescriptor::smDynamicPayloads[] = {
-    { "MP4V-ES", AVMEDIA_TYPE_VIDEO, CODEC_ID_MPEG4 },
-    { "mpeg4-generic", AVMEDIA_TYPE_AUDIO, CODEC_ID_AAC },
-    { "H264", AVMEDIA_TYPE_VIDEO, CODEC_ID_H264 },
-    { "AMR", AVMEDIA_TYPE_AUDIO, CODEC_ID_AMR_NB }
+    { "MP4V-ES", AVMEDIA_TYPE_VIDEO, AV_CODEC_ID_MPEG4 },
+    { "mpeg4-generic", AVMEDIA_TYPE_AUDIO, AV_CODEC_ID_AAC },
+    { "H264", AVMEDIA_TYPE_VIDEO, AV_CODEC_ID_H264 },
+    { "AMR", AVMEDIA_TYPE_AUDIO, AV_CODEC_ID_AMR_NB },
+    { "vnd.onvif.metadata", AVMEDIA_TYPE_DATA, AV_CODEC_ID_NONE }
 };
 #else
 SessionDescriptor::StaticPayloadDesc SessionDescriptor::smStaticPayloads[] = {
-    { 0, "PCMU",   CODEC_TYPE_AUDIO,   CODEC_ID_PCM_MULAW,  8000,  1 },
+    { 0, "PCMU",   CODEC_TYPE_AUDIO,   CODEC_ID_PCM_MULAW,  8001,  1 },
     { 3, "GSM",    CODEC_TYPE_AUDIO,   CODEC_ID_NONE,       8000,  1 },
     { 4, "G723",   CODEC_TYPE_AUDIO,   CODEC_ID_NONE,       8000,  1 },
     { 5, "DVI4",   CODEC_TYPE_AUDIO,   CODEC_ID_NONE,       8000,  1 },
@@ -95,7 +96,8 @@ SessionDescriptor::DynamicPayloadDesc SessionDescriptor::smDynamicPayloads[] = {
     { "MP4V-ES", CODEC_TYPE_VIDEO, CODEC_ID_MPEG4 },
     { "mpeg4-generic", CODEC_TYPE_AUDIO, CODEC_ID_AAC },
     { "H264", CODEC_TYPE_VIDEO, CODEC_ID_H264 },
-    { "AMR", CODEC_TYPE_AUDIO, CODEC_ID_AMR_NB }
+    { "AMR", CODEC_TYPE_AUDIO, CODEC_ID_AMR_NB },
+    { "vnd.onvif.metadata", CODEC_TYPE_DATA, CODEC_ID_NONE }
 };
 #endif
 
@@ -144,6 +146,7 @@ SessionDescriptor::MediaDescriptor::MediaDescriptor( const std::string &type, in
     mClock( 0 ),
     mWidth( 0 ),
     mHeight( 0 ),
+    mSprops( "" ),
     mConnInfo( 0 )
 {
 }
@@ -183,9 +186,15 @@ SessionDescriptor::SessionDescriptor( const std::string &url, const std::string 
                 mInfo = line;
                 break;
             case 'c' :
+                // This prevent a memory leak if the field appears more than one time
+                if ( mConnInfo )
+                    delete mConnInfo;
                 mConnInfo = new ConnInfo( line );
                 break;
             case 'b' :
+                // This prevent a memory leak if the field appears more than one time
+                if ( mBandInfo )
+                    delete mBandInfo;
                 mBandInfo = new BandInfo( line );
                 break;
             case 't' :
@@ -273,6 +282,20 @@ SessionDescriptor::SessionDescriptor( const std::string &url, const std::string 
                                 else if ( attr3Tokens[0] == "config" )
                                 {
                                 }
+                                else if ( attr3Tokens[0] == "sprop-parameter-sets" )
+                                {
+                              		size_t t = attr2Tokens[i].find("=");
+                              		char *c = (char *)attr2Tokens[i].c_str() + t + 1;
+                              		Debug(4, "sprop-parameter-sets value %s", c);
+                            		currMedia->setSprops(std::string(c));
+                                }
+                                else if ( attr3Tokens[0] == "sprop-parameter-sets" )
+                                {
+                              		size_t t = attr2Tokens[i].find("=");
+                              		char *c = (char *)attr2Tokens[i].c_str() + t + 1;
+                              		Debug(4, "sprop-parameter-sets value %s", c);
+                            		currMedia->setSprops(std::string(c));
+                                }
                                 else 
                                 {
                                     Debug( 3, "Ignoring SDP fmtp attribute '%s' for media '%s'", attr3Tokens[0].c_str(), currMedia->getType().c_str() )
@@ -305,7 +328,7 @@ SessionDescriptor::SessionDescriptor( const std::string &url, const std::string 
                 if ( tokens.size() < 4 )
                     throw Exception( "Can't parse SDP media description '"+line+"'" );
                 std::string mediaType = tokens[0];
-                if ( mediaType != "audio" && mediaType != "video" )
+                if ( mediaType != "audio" && mediaType != "video"  && mediaType != "application" )
                     throw Exception( "Unsupported media type '"+mediaType+"' in SDP media attribute '"+line+"'" );
                 StringVector portTokens = split( tokens[1], "/" );
                 int mediaPort = atoi(portTokens[0].c_str());
@@ -324,17 +347,32 @@ SessionDescriptor::SessionDescriptor( const std::string &url, const std::string 
     }
 }
 
+SessionDescriptor::~SessionDescriptor()
+{
+    if ( mConnInfo )
+        delete mConnInfo;
+    if ( mBandInfo )
+        delete mBandInfo;
+    for ( unsigned int i = 0; i < mMediaList.size(); i++ )
+        delete mMediaList[i];
+}
+
 AVFormatContext *SessionDescriptor::generateFormatContext() const
 {
     AVFormatContext *formatContext = avformat_alloc_context();
 
     strncpy( formatContext->filename, mUrl.c_str(), sizeof(formatContext->filename) );
-
+/*
+    if ( mName.length() )
+        strncpy( formatContext->title, mName.c_str(), sizeof(formatContext->title) );
+    if ( mInfo.length() )
+        strncpy( formatContext->comment, mInfo.c_str(), sizeof(formatContext->comment) );
+*/
     //formatContext->nb_streams = mMediaList.size();
     for ( unsigned int i = 0; i < mMediaList.size(); i++ )
     {
         const MediaDescriptor *mediaDesc = mMediaList[i];
-#if LIBAVFORMAT_VERSION_INT < AV_VERSION_INT(53, 8, 0)
+#if !LIBAVFORMAT_VERSION_CHECK(53, 10, 0, 17, 0)
         AVStream *stream = av_new_stream( formatContext, i );
 #else
         AVStream *stream = avformat_new_stream( formatContext, NULL );
@@ -342,18 +380,25 @@ AVFormatContext *SessionDescriptor::generateFormatContext() const
 #endif
 
         Debug( 1, "Looking for codec for %s payload type %d / %s",  mediaDesc->getType().c_str(), mediaDesc->getPayloadType(), mediaDesc->getPayloadDesc().c_str() );
-#if LIBAVUTIL_VERSION_INT >= AV_VERSION_INT(51,2,1)
+#if (LIBAVCODEC_VERSION_CHECK(52, 64, 0, 64, 0) || LIBAVUTIL_VERSION_CHECK(50, 14, 0, 14, 0))
         if ( mediaDesc->getType() == "video" )
             stream->codec->codec_type = AVMEDIA_TYPE_VIDEO;
         else if ( mediaDesc->getType() == "audio" )
             stream->codec->codec_type = AVMEDIA_TYPE_AUDIO;
+        else if ( mediaDesc->getType() == "application" )
+            stream->codec->codec_type = AVMEDIA_TYPE_DATA;
 #else
         if ( mediaDesc->getType() == "video" )
             stream->codec->codec_type = CODEC_TYPE_VIDEO;
         else if ( mediaDesc->getType() == "audio" )
             stream->codec->codec_type = CODEC_TYPE_AUDIO;
+        else if ( mediaDesc->getType() == "application" )
+            stream->codec->codec_type = CODEC_TYPE_DATA;
 #endif
 
+#if LIBAVCODEC_VERSION_CHECK(55, 50, 3, 60, 103)
+        std::string codec_name;
+#endif
         if ( mediaDesc->getPayloadType() < PAYLOAD_TYPE_DYNAMIC )
         {
             // Look in static table
@@ -362,7 +407,11 @@ AVFormatContext *SessionDescriptor::generateFormatContext() const
                 if ( smStaticPayloads[i].payloadType == mediaDesc->getPayloadType() )
                 {
                     Debug( 1, "Got static payload type %d, %s", smStaticPayloads[i].payloadType, smStaticPayloads[i].payloadName );
+#if LIBAVCODEC_VERSION_CHECK(55, 50, 3, 60, 103)
+                    codec_name = std::string( smStaticPayloads[i].payloadName );
+#else
                     strncpy( stream->codec->codec_name, smStaticPayloads[i].payloadName, sizeof(stream->codec->codec_name) );;
+#endif
                     stream->codec->codec_type = smStaticPayloads[i].codecType;
                     stream->codec->codec_id = smStaticPayloads[i].codecId;
                     stream->codec->sample_rate = smStaticPayloads[i].clockRate;
@@ -378,7 +427,11 @@ AVFormatContext *SessionDescriptor::generateFormatContext() const
                 if ( smDynamicPayloads[i].payloadName == mediaDesc->getPayloadDesc() )
                 {
                     Debug( 1, "Got dynamic payload type %d, %s", mediaDesc->getPayloadType(), smDynamicPayloads[i].payloadName );
+#if LIBAVCODEC_VERSION_CHECK(55, 50, 3, 60, 103)
+                    codec_name = std::string( smStaticPayloads[i].payloadName );
+#else
                     strncpy( stream->codec->codec_name, smDynamicPayloads[i].payloadName, sizeof(stream->codec->codec_name) );;
+#endif
                     stream->codec->codec_type = smDynamicPayloads[i].codecType;
                     stream->codec->codec_id = smDynamicPayloads[i].codecId;
                     stream->codec->sample_rate = mediaDesc->getClock();
@@ -386,7 +439,12 @@ AVFormatContext *SessionDescriptor::generateFormatContext() const
                 }
             }
         }
+
+#if LIBAVCODEC_VERSION_CHECK(55, 50, 3, 60, 103)
+        if ( codec_name.empty() )
+#else
         if ( !stream->codec->codec_name[0] )
+#endif
         {
             Warning( "Can't find payload details for %s payload type %d, name %s", mediaDesc->getType().c_str(), mediaDesc->getPayloadType(), mediaDesc->getPayloadDesc().c_str() );
             //return( 0 );
@@ -395,6 +453,58 @@ AVFormatContext *SessionDescriptor::generateFormatContext() const
             stream->codec->width = mediaDesc->getWidth();
         if ( mediaDesc->getHeight() )
             stream->codec->height = mediaDesc->getHeight();
+        if ( stream->codec->codec_id == AV_CODEC_ID_H264 && mediaDesc->getSprops().size())
+        {
+    	    uint8_t start_sequence[]= { 0, 0, 1 };
+    	    stream->codec->extradata_size= 0;
+    	    stream->codec->extradata= NULL;
+    	    char pvalue[1024], *value = pvalue;
+	    
+			strcpy(pvalue, mediaDesc->getSprops().c_str());
+	    
+    	    while (*value) {
+        		char base64packet[1024];
+        		uint8_t decoded_packet[1024];
+        		uint32_t packet_size;
+        		char *dst = base64packet;
+
+        		while (*value && *value != ','
+            	       && (dst - base64packet) < (long)(sizeof(base64packet)) - 1) {
+            	      *dst++ = *value++;
+        		}
+        		*dst++ = '\0';
+
+        		if (*value == ',')
+            	    value++;
+
+        		packet_size= av_base64_decode(decoded_packet, (const char *)base64packet, (int)sizeof(decoded_packet));
+        		Hexdump(4, (char *)decoded_packet, packet_size);
+        		if (packet_size) {
+            		uint8_t *dest = 
+            		(uint8_t *)av_malloc(packet_size + sizeof(start_sequence) +
+                  		                 stream->codec->extradata_size +
+                      		             FF_INPUT_BUFFER_PADDING_SIZE);
+            		if(dest) {
+              			if(stream->codec->extradata_size) {
+                  			// av_realloc?
+                			memcpy(dest, stream->codec->extradata, stream->codec->extradata_size);
+                  			av_free(stream->codec->extradata);
+              			}
+
+              			memcpy(dest+stream->codec->extradata_size, start_sequence, sizeof(start_sequence));
+              			memcpy(dest+stream->codec->extradata_size+sizeof(start_sequence), decoded_packet, packet_size);
+              			memset(dest+stream->codec->extradata_size+sizeof(start_sequence)+
+                  	  		   packet_size, 0, FF_INPUT_BUFFER_PADDING_SIZE);
+
+              			stream->codec->extradata= dest;
+              			stream->codec->extradata_size+= sizeof(start_sequence)+packet_size;
+//            		} else {
+//              		av_log(codec, AV_LOG_ERROR, "Unable to allocate memory for extradata!");
+//                		return AVERROR(ENOMEM);
+            		}
+        		}
+    	    }
+        }
     }
 
     return( formatContext );

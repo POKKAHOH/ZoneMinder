@@ -35,6 +35,10 @@ RemoteCamera::RemoteCamera( int p_id, const std::string &p_protocol, const std::
 
 RemoteCamera::~RemoteCamera()
 {
+	if(hp != NULL) {
+    		freeaddrinfo(hp);
+		hp = NULL;
+	}
 }
 
 void RemoteCamera::Initialise()
@@ -52,24 +56,32 @@ void RemoteCamera::Initialise()
 		//Fatal( "No path specified for remote camera" );
 
 	// Cache as much as we can to speed things up
-    std::string::size_type authIndex = host.find( '@' );
+    std::string::size_type authIndex = host.rfind( '@' );
 
 	if ( authIndex != std::string::npos )
 	{
         auth = host.substr( 0, authIndex );
         host.erase( 0, authIndex+1 );
 		auth64 = base64Encode( auth );
+
+		authIndex = auth.rfind( ':' );
+		username = auth.substr(0,authIndex);
+		password = auth.substr( authIndex+1, auth.length() );
+
 	}
 
-	if ( !hp )
+    mNeedAuth = false;
+	mAuthenticator = new zm::Authenticator(username,password);
+
+	struct addrinfo hints;
+	memset(&hints, 0, sizeof(hints));
+	hints.ai_family = AF_UNSPEC;
+	hints.ai_socktype = SOCK_STREAM;
+
+	int ret = getaddrinfo(host.c_str(), port.c_str(), &hints, &hp);
+	if ( ret != 0 )
 	{
-		if ( !(hp = gethostbyname(host.c_str())) )
-		{
-			Fatal( "Can't gethostbyname(%s): %s", host.c_str(), strerror(h_errno) );
-		}
-		memcpy((char *)&sa.sin_addr, (char *)hp->h_addr, hp->h_length);
-		sa.sin_family = hp->h_addrtype;
-		sa.sin_port = htons(atoi(port.c_str()));
+		Fatal( "Can't getaddrinfo(%s port %s): %s", host.c_str(), port.c_str(), gai_strerror(ret) );
 	}
 }
 

@@ -23,25 +23,22 @@ if ( !canEdit( 'Events' ) )
     $view = "error";
     return;
 }
-if ( isset($_REQUEST['eid']) )
-{
+if ( isset($_REQUEST['eid']) ) {
     $mode = 'single';
     $eid = validInt($_REQUEST['eid']);
-    $sql = "select E.* from Events as E where E.Id = '".dbEscape($eid)."'";
-    $newEvent = dbFetchOne( $sql );
-}
-elseif ( isset($_REQUEST['eids']) )
-{
+    $newEvent = dbFetchOne( 'SELECT E.* FROM Events AS E WHERE E.Id = ?', NULL, array($eid) );
+} elseif ( isset($_REQUEST['eids']) ) {
     $mode = 'multi';
-    $sql = "select E.* from Events as E where ";
+    $sql = 'SELECT E.* FROM Events AS E WHERE ';
     $sqlWhere = array();
-    foreach ( $_REQUEST['eids'] as $eid )
-    {
-        $sqlWhere[] = "E.Id = '".dbEscape($eid)."'";
+	$sqlValues = array();
+    foreach ( $_REQUEST['eids'] as $eid ) {
+        $sqlWhere[] = 'E.Id = ?';
+		$sqlValues[] = $eid;
     }
     unset( $eid );
     $sql .= join( " or ", $sqlWhere );
-    foreach( dbFetchAll( $sql ) as $row )
+    foreach( dbFetchAll( $sql, NULL, $sqlValues ) as $row )
     {
         if ( !isset($newEvent) )
         {
@@ -64,9 +61,9 @@ else
 $focusWindow = true;
 
 if ( $mode == 'single' )
-    xhtmlHeaders(__FILE__, $SLANG['Event']." - ".$eid );
+    xhtmlHeaders(__FILE__, translate('Event')." - ".$eid );
 else
-    xhtmlHeaders(__FILE__, $SLANG['Events'] );
+    xhtmlHeaders(__FILE__, translate('Events') );
 ?>
 <body>
   <div id="page">
@@ -75,27 +72,27 @@ else
 if ( $mode == 'single' )
 {
 ?>
-      <h2><?= $SLANG['Event'] ?> <?= $eid ?></h2>
+      <h2><?php echo translate('Event') ?> <?php echo $eid ?></h2>
 <?php
 }
 else
 {
 ?>
-      <h2><?= $SLANG['Events'] ?></h2>
+      <h2><?php echo translate('Events') ?></h2>
 <?php
 }
 ?>
     </div>
     <div id="content">
-      <form name="contentForm" id="contentForm" method="post" action="<?= $_SERVER['PHP_SELF'] ?>">
+      <form name="contentForm" id="contentForm" method="post" action="<?php echo $_SERVER['PHP_SELF'] ?>">
         <input type="hidden" name="view" value="none"/>
 <?php
 if ( $mode == 'single' )
 {
 ?>
-        <input type="hidden" name="view" value="<?= $view ?>"/>
+        <input type="hidden" name="view" value="<?php echo $view ?>"/>
         <input type="hidden" name="action" value="eventdetail"/>
-        <input type="hidden" name="eid" value="<?= $eid ?>"/>
+        <input type="hidden" name="eid" value="<?php echo $eid ?>"/>
 <?php
 }
 elseif ( $mode = 'multi' )
@@ -107,7 +104,7 @@ elseif ( $mode = 'multi' )
     foreach ( $_REQUEST['eids'] as $eid )
     {
 ?>
-        <input type="hidden" name="markEids[]" value="<?= validHtmlStr($eid) ?>"/>
+        <input type="hidden" name="markEids[]" value="<?php echo validHtmlStr($eid) ?>"/>
 <?php
     }
 }
@@ -115,17 +112,17 @@ elseif ( $mode = 'multi' )
         <table id="contentTable" class="major" cellspacing="0">
           <tbody>
             <tr>
-              <th scope="row"><?= $SLANG['Cause'] ?></th>
-              <td><input type="text" name="newEvent[Cause]" value="<?= validHtmlStr($newEvent['Cause']) ?>" size="32"/></td>
+              <th scope="row"><?php echo translate('Cause') ?></th>
+              <td><input type="text" name="newEvent[Cause]" value="<?php echo validHtmlStr($newEvent['Cause']) ?>" size="32"/></td>
             </tr>
             <tr>
-              <th scope="row"><?= $SLANG['Notes'] ?></th>
-              <td><textarea name="newEvent[Notes]" rows="6" cols="50"><?= validHtmlStr($newEvent['Notes']) ?></textarea></td>
+              <th scope="row"><?php echo translate('Notes') ?></th>
+              <td><textarea name="newEvent[Notes]" rows="6" cols="50"><?php echo validHtmlStr($newEvent['Notes']) ?></textarea></td>
             </tr>
           </tbody>
         </table>
         <div id="contentButtons">
-          <input type="submit" value="<?= $SLANG['Save'] ?>"<?php if ( !canEdit( 'Events' ) ) { ?> disabled="disabled"<?php } ?>/><input type="button" value="<?= $SLANG['Cancel'] ?>" onclick="closeWindow()"/>
+          <input type="submit" value="<?php echo translate('Save') ?>"<?php if ( !canEdit( 'Events' ) ) { ?> disabled="disabled"<?php } ?>/><input type="button" value="<?php echo translate('Cancel') ?>" onclick="closeWindow()"/>
         </div>
       </form>
     </div>

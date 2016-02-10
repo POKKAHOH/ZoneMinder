@@ -30,16 +30,16 @@ if ( $user['MonitorIds'] )
     $midSql = " and MonitorId in (".join( ",", preg_split( '/["\'\s]*,["\'\s]*/', $user['MonitorIds'] ) ).")";
 }
 
-$sql = "select E.*,M.Name as MonitorName from Events as E inner join Monitors as M on E.MonitorId = M.Id where E.Id = '".dbEscape($_REQUEST['eid'])."'".$midSql;
-$event = dbFetchOne( $sql );
+$sql = 'select E.*,M.Name as MonitorName from Events as E inner join Monitors as M on E.MonitorId = M.Id where E.Id = ?'.$midSql;
+$event = dbFetchOne( $sql, NULL, array($_REQUEST['eid']) );
 
 if ( !empty($_REQUEST['fid']) )
 {
-    $frame = dbFetchOne( "select * from Frames where EventID = '".dbEscape($_REQUEST['eid'])."' and FrameId = '".dbEscape($_REQUEST['fid'])."'" );
+    $frame = dbFetchOne( 'SELECT * FROM Frames WHERE EventID = ? AND FrameId = ?', NULL, array($_REQUEST['eid'],$_REQUEST['fid']) );
 }
 elseif ( isset($_REQUEST['fid']) )
 {
-    $frame = dbFetchOne( "select * from Frames where EventID = '".dbEscape($_REQUEST['eid'])."' and Score = '".$event['MaxScore']."'" );
+    $frame = dbFetchOne( 'SELECT * FROM Frames WHERE EventID = ? AND Score = ?', NULL, array($_REQUEST['eid'],$event['MaxScore']) );
     $_REQUEST['fid'] = $frame['FrameId'];
 }
 
@@ -47,8 +47,12 @@ parseSort( true, '&amp;' );
 parseFilter( $_REQUEST['filter'], true, '&amp;' );
 $filterQuery = $_REQUEST['filter']['query'];
 
-$sql = "select E.* from Events as E inner join Monitors as M on E.MonitorId = M.Id where $sortColumn ".($sortOrder=='asc'?'<=':'>=')." '".$event[$_REQUEST['sort_field']]."'".$_REQUEST['filter']['sql'].$midSql." order by $sortColumn ".($sortOrder=='asc'?'desc':'asc');
-$result = dbQuery( $sql );
+if ( $sortOrder=='asc' ) {
+	$sql = "select E.* from Events as E inner join Monitors as M on E.MonitorId = M.Id where $sortColumn <= ?".$_REQUEST['filter']['sql'].$midSql." order by $sortColumn desc";
+} else {
+	$sql = "select E.* from Events as E inner join Monitors as M on E.MonitorId = M.Id where $sortColumn >= ?".$_REQUEST['filter']['sql'].$midSql." order by $sortColumn asc";
+} 
+$result = dbQuery( $sql, array( $event[$_REQUEST['sort_field']] ) );
 while ( $row = dbFetchNext( $result ) )
 {
     if ( $row['Id'] == $_REQUEST['eid'] )
@@ -58,8 +62,8 @@ while ( $row = dbFetchNext( $result ) )
     }
 }
 
-$sql = "select E.* from Events as E inner join Monitors as M on E.MonitorId = M.Id where $sortColumn ".($sortOrder=='asc'?'>=':'<=')." '".$event[$_REQUEST['sort_field']]."'".$_REQUEST['filter']['sql'].$midSql." order by $sortColumn $sortOrder";
-$result = dbQuery( $sql );
+$sql = "select E.* from Events as E inner join Monitors as M on E.MonitorId = M.Id where $sortColumn ".($sortOrder=='asc'?'>=':'<=').' ?'.$_REQUEST['filter']['sql'].$midSql." order by $sortColumn $sortOrder";
+$result = dbQuery( $sql, array($event[$_REQUEST['sort_field']]) );
 while ( $row = dbFetchNext( $result ) )
 {
     if ( $row['Id'] == $_REQUEST['eid'] )
@@ -86,11 +90,11 @@ else
     $hiFrameId = $event['Frames'];
 }
 
-$sql = "select * from Frames where EventID = '".dbEscape($_REQUEST['eid'])."'";
+$sql = 'SELECT * FROM Frames WHERE EventID = ?';
 if ( $paged && !empty($_REQUEST['page']) )
     $sql .= " and FrameId between $loFrameId and $hiFrameId";
 $sql .= " order by FrameId";
-$frames = dbFetchAll( $sql );
+$frames = dbFetchAll( $sql, NULL, array( $_REQUEST['eid'] ) );
 
 $scale = getDeviceScale( $event['Width'], $event['Height'], $framesPerLine+0.3 );
 
@@ -100,7 +104,7 @@ if ( !empty($_REQUEST['fid']) )
 
 $pagination = getPagination( $pages, $_REQUEST['page'], $maxShortcuts, '&amp;eid='.$_REQUEST['eid'].$filterQuery.$sortQuery, '&amp;' );
 
-xhtmlHeaders( __FILE__, $SLANG['Event'].' - '.$event['Name'] );
+xhtmlHeaders( __FILE__, translate('Event').' - '.$event['Name'] );
 ?>
 <body>
   <div id="page">
@@ -110,19 +114,19 @@ if ( canEdit( 'Events' ) )
 {
 ?>
       <div id="headerButtons">
-        <a href="?view=events&amp;action=delete&amp;mark_eid=<?= $_REQUEST['eid'] ?><?= $filterQuery ?><?= $sortQuery ?>&amp;limit=<?= $_REQUEST['limit'] ?>&amp;page=<?= $_REQUEST['page'] ?>"><?= $SLANG['Delete'] ?></a>
+        <a href="?view=events&amp;action=delete&amp;mark_eid=<?php echo $_REQUEST['eid'] ?><?php echo $filterQuery ?><?php echo $sortQuery ?>&amp;limit=<?php echo $_REQUEST['limit'] ?>&amp;page=<?php echo $_REQUEST['page'] ?>"><?php echo translate('Delete') ?></a>
       </div>
 <?php
 }
 ?>
-      <h2><?= makeLink( '?view=eventdetails&amp;eid='.$_REQUEST['eid'], $event['Name'].($event['Archived']?'*':''), canEdit( 'Events' ) ) ?></h2>
+      <h2><?php echo makeLink( '?view=eventdetails&amp;eid='.$_REQUEST['eid'], $event['Name'].($event['Archived']?'*':''), canEdit( 'Events' ) ) ?></h2>
     </div>
     <div id="content">
 <?php
 if ( $pagination )
 {
 ?>
-      <h3 class="pagination"><?= $pagination ?></h3>
+      <h3 class="pagination"><?php echo $pagination ?></h3>
 <?php
 }
 ?>
@@ -132,7 +136,7 @@ foreach ( $frames as $frame )
 {
     $imageData = getImageSrc( $event, $frame, $scale );
 ?>
-       <a href="?view=frame&amp;eid=<?= $_REQUEST['eid'] ?>&amp;fid=<?= $frame['FrameId'] ?>"><img src="<?= viewImagePath( $imageData['thumbPath'] ) ?>" class="<?= $imageData['imageClass'] ?>" alt="<?= $frame['Type'] ?>/<?= $frame['Type']=='Alarm'?$frame['Score']:0 ?>"/></a>
+       <a href="?view=frame&amp;eid=<?php echo $_REQUEST['eid'] ?>&amp;fid=<?php echo $frame['FrameId'] ?>"><img src="<?php echo viewImagePath( $imageData['thumbPath'] ) ?>" class="<?php echo $imageData['imageClass'] ?>" alt="<?php echo $frame['Type'] ?>/<?php echo $frame['Type']=='Alarm'?$frame['Score']:0 ?>"/></a>
 <?php
 }
 ?>

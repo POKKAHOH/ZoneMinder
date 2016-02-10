@@ -17,19 +17,24 @@
 // Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // 
 
+#if !defined(PATH_MAX)
+#define PATH_MAX 1024
+#endif
+
 #ifndef ZM_H
 #define ZM_H
 
 #include "zm_config.h"
+#ifdef SOLARIS
+#undef DEFAULT_TYPE    // pthread defines this which breaks StreamType DEFAULT_TYPE
+#include <string.h>    // define strerror() and friends
+#endif
 #include "zm_logger.h"
 
-extern "C"
-{
-#if !HAVE_DECL_ROUND
-double round(double);
-#endif
-}
-
 #include <stdint.h>
+
+#include <iostream>
+
+extern const char* self;
 
 #endif // ZM_H

@@ -25,16 +25,14 @@ if ( !canView( 'Control' ) )
 }
 
 $groupSql = "";
-if ( !empty($_REQUEST['group']) )
-{
-    $sql = "select * from Groups where Id = '".dbEscape($_REQUEST['group'])."'";
-    $row = dbFetchOne( $sql );
+if ( !empty($_REQUEST['group']) ) {
+    $row = dbFetchOne( 'SELECT * FROM Groups WHERE Id = ?', NULL, array($_REQUEST['group']) );
     $groupSql = " and find_in_set( Id, '".$row['MonitorIds']."' )";
 }
 
 $mid = validInt($_REQUEST['mid']);
 
-$sql = "select * from Monitors where Function != 'None' and Controllable = 1$groupSql order by Sequence";
+$sql = "SELECT * FROM Monitors WHERE Function != 'None' AND Controllable = 1$groupSql ORDER BY Sequence";
 $mids = array();
 foreach( dbFetchAll( $sql ) as $row )
 {
@@ -50,30 +48,30 @@ foreach( dbFetchAll( $sql ) as $row )
 foreach ( getSkinIncludes( 'includes/control_functions.php' ) as $includeFile )
     require_once $includeFile;
 
-$sql = "select C.*,M.* from Monitors as M inner join Controls as C on (M.ControlId = C.Id ) where M.Id = '".$mid."'";
-$monitor = dbFetchOne( $sql );
+$sql = 'SELECT C.*,M.* FROM Monitors AS M INNER JOIN Controls AS C ON (M.ControlId = C.Id ) WHERE M.Id = ?';
+$monitor = dbFetchOne( $sql, NULL, array( $mid ) );
 
 $focusWindow = true;
 
-xhtmlHeaders(__FILE__, $SLANG['Control'] );
+xhtmlHeaders(__FILE__, translate('Control') );
 ?>
 <body>
   <div id="page">
     <div id="header">
       <div id="headerButtons">
-        <a href="#" onclick="closeWindow();"><?= $SLANG['Close'] ?></a>
+        <a href="#" onclick="closeWindow();"><?php echo translate('Close') ?></a>
       </div>
-      <h2><?= $SLANG['Control'] ?></h2>
+      <h2><?php echo translate('Control') ?></h2>
       <div id="headerControl">
-        <form name="contentForm" id="contentForm" method="get" action="<?= $_SERVER['PHP_SELF'] ?>">
-          <input type="hidden" name="view" value="<?= $view ?>"/>
-          <?= buildSelect( "mid", $mids, "this.form.submit();" ); ?>
+        <form name="contentForm" id="contentForm" method="get" action="<?php echo $_SERVER['PHP_SELF'] ?>">
+          <input type="hidden" name="view" value="<?php echo $view ?>"/>
+          <?php echo buildSelect( "mid", $mids, "this.form.submit();" ); ?>
         </form>
       </div>
     </div>
     <div id="content">
       <div id="ptzControls" class="ptzControls">
-<?= ptzControls( $monitor ) ?>
+<?php echo ptzControls( $monitor ) ?>
       </div>
     </div>
   </div>

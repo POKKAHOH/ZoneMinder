@@ -17,9 +17,9 @@
 // along with this program; if not, write to the Free Software
 // Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 //
-
+//
 // ZoneMinder Hungarian Translation by szimszon at oregpreshaz dot eu, robi
-// version: 0.8 - 2013.08.15. - frissítés 1.26.0-hoz (robi)
+// version: 0.8 - 2013.08.16. - frissítés 1.26.0-hoz (robi)
 // version: 0.7 - 2013.05.12. - frissítés 1.25.0-hoz (robi)
 // version: 0.6 - 2009.06.21. - frissítés 1.24.2-höz (robi)
 // version: 0.5 - 2007.12.30. - frissítés 1.23.1-hez (robi)
@@ -27,7 +27,25 @@
 // version: 0.3 - 2006.04.27. - fordítás befejezése, elrendezése elféréshez (robi)
 // version: 0.2 - 2006.12.05. - par javitas
 // version: 0.1 - 2006.11.27. - sok typoval es par leforditatlan resszel
-
+//
+// To enable correct Hungarian locales, make sure to install hu_HU locale on your system.
+//
+// On Ubuntu 12.04 do it like this:
+//
+// locale -a
+// - to see what's installed
+//
+// cat /usr/share/i18n/SUPPORTED | grep hu
+// - to check the possibility of installation
+//
+// sudo locale-gen hu_HU
+// sudo locale-gen hu_HU.utf8
+// - to install
+//
+// sudo service apache2 restart
+// - to make PHP aware of it
+//
+//
 // Notes for Translators
 // 0. Get some credit, put your name in the line above (optional)
 // 1. When composing the language tokens in your language you should try and keep to roughly the
@@ -78,12 +96,26 @@ header( "Content-Type: text/html; charset=utf-8" );
 //setlocale( LC_CTYPE, 'hu_HU'); //Character class settings 4.3.0 and after
 //setlocale( LC_TIME, 'hu_HU'); //Date and time formatting 4.3.0 and after
 
-setlocale( LC_CTYPE, 'hu_HU');
-setlocale( LC_TIME, 'hu_HU' );
+setlocale( LC_CTYPE, 'hu_HU.UTF-8');
+setlocale( LC_TIME, 'hu_HU.UTF-8' );
+
+//
+// Date and time formats, specific to this language
+//
+define( "DATE_FMT_CONSOLE_LONG", "%Y. %b. %e. %A, %H:%M" );     // This is the main console date/time, date() or strftime() format
+define( "DATE_FMT_CONSOLE_SHORT", "%H:%M" );                    // This is the xHTML console date/time, date() or strftime() format
+
+define( "STRF_FMT_DATETIME", "%Y. %b. %e., %H:%M" );            // Strftime locale aware format for dates with times
+define( "STRF_FMT_DATE", "%Y. %b. %e." );                       // Strftime locale aware format for dates without times
+define( "STRF_FMT_TIME", "%H:%M:%S" );                          // Strftime locale aware format for times without dates
+
+define( "STRF_FMT_DATETIME_SHORT", "%y/%m/%d %H:%M:%S" );       // Strftime shorter format for dates with time
+define( "STRF_FMT_DATETIME_SHORTER", "%m.%d. %H:%M:%S" );       // Strftime shorter format for dates with time, used where space is tight (events list)
 
 // Simple String Replacements
 $SLANG = array(
     '24BitColour'          => '24 bites szín',
+    '32BitColour'          => '32 bit colour',          // Added - 2015-04-18
     '8BitGrey'             => '8 bit szürkeárnyalat',
     'Action'               => 'Művelet',
     'Actual'               => 'Valós',
@@ -99,8 +131,11 @@ $SLANG = array(
     'AlarmMaximumFPS'      => 'Maximális FPS riasztott állapotban',
     'AlarmPx'              => 'Riasztó képpont',
     'AlarmRGBUnset'        => 'Be kell állítani egy RGB színt a riasztáshoz',
+    'AlarmRefImageBlendPct'=> 'Alarm Reference Image Blend %ge', // Added - 2015-04-18
     'Alert'                => 'Figyelem',
     'All'                  => 'Mind',
+    'AnalysisFPS'          => 'Analysis FPS',           // Added - 2015-07-22
+    'AnalysisUpdateDelay'  => 'Analysis Update Delay',  // Added - 2015-07-23
     'Apply'                => 'Alkalmaz',
     'ApplyingStateChange'  => 'Állapot váltása...',
     'ArchArchived'         => 'Csak archivált',
@@ -133,11 +168,14 @@ $SLANG = array(
     'AutoStopTimeout'      => 'Auto megállási idő túllépés',
     'Available'            => 'Elérhető',
     'AvgBrScore'           => 'Átlag<br/>érték',
-    'Background'           => 'Háttérben',
+    'Background'           => 'Háttérben futó',
     'BackgroundFilter'     => 'Szűrő automatikus futtatása a háttérben',
     'BadAlarmFrameCount'   => 'Riasztáshoz szükséges képkockák száma legyen legalább 1',
     'BadAlarmMaxFPS'       => 'Maximális FPS riasztott állapotban legyen megadva',
+    'BadAnalysisFPS'       => 'Analysis FPS must be a positive integer or floating point value', // Added - 2015-07-22
+    'BadAnalysisUpdateDelay'=> 'Analysis update delay must be set to an integer of zero or more', // Added - 2015-07-23
     'BadChannel'           => 'A csatorna száma legyen legalább 0',
+    'BadColours'           => 'Target colour must be set to a valid value', // Added - 2015-04-18
     'BadDevice'            => 'Az eszköz elérése valós legyen',
     'BadFPSReportInterval' => 'Az FPS naplózásának gyakorisága legyen legalább 0',
     'BadFormat'            => 'A típus 0 vagy nagyobb egész szám legyen',
@@ -148,6 +186,7 @@ $SLANG = array(
     'BadLabelX'            => 'A cimke X koordinátája legyen legalább 0',
     'BadLabelY'            => 'A cimke Y koordinátája legyen legalább 0',
     'BadMaxFPS'            => 'Maximális FPS nyugalmi állapotban legyen megadva',
+    'BadMotionFrameSkip'   => 'Motion Frame skip count must be an integer of zero or more',
     'BadNameChars'         => 'A név csak betűket, számokat, plusz-, kötő-, és aláhúzásjelet tartalmazhat',
     'BadPalette'           => 'A szín-palettának válasszin egy helyes értéket',
     'BadPath'              => 'A kép elérési útvonala helytelen',
@@ -161,12 +200,15 @@ $SLANG = array(
     'BadWarmupCount'       => 'Bemelegítő képkockák száma legyen legalább 0',
     'BadWebColour'         => 'Szín az idővonal ablakban legyen egy érvényes HTML szín-kód',
     'BadWidth'             => 'A képszélesség legyen érvényes érték képpontban megadva',
-    'Bandwidth'            => 'sávszélességre',
+    'Bandwidth'            => 'Sávszélesség',
+    'BandwidthHead'        => 'sávszélességre',
     'BlobPx'               => 'Blob képpont',
     'BlobSizes'            => 'Blob méretek',
     'Blobs'                => 'Blob-ok',
     'Brightness'           => 'Fényerő',
+    'Buffer'               => 'Buffer',                 // Added - 2015-04-18
     'Buffers'              => 'Pufferek',
+    'CSSDescription'       => 'Change the default css for this computer', // Added - 2015-04-18
     'CanAutoFocus'         => 'Van autofókusza',
     'CanAutoGain'          => 'Van AGC-je',
     'CanAutoIris'          => 'Van autoírisze',
@@ -210,6 +252,7 @@ $SLANG = array(
     'CaptureHeight'        => 'Képmagasság',
     'CaptureMethod'        => 'Digitalizálás módszere',
     'CapturePalette'       => 'Digitalizálás szín-palettája',
+    'CaptureResolution'    => 'Capture Resolution',     // Added - 2015-04-18
     'CaptureWidth'         => 'Képszélesség',
     'Cause'                => 'Okozó',
     'CheckMethod'          => 'A riasztás figyelésének módja',
@@ -240,6 +283,7 @@ $SLANG = array(
     'ControlDevice'        => 'Vezérlő eszköz',
     'ControlType'          => 'Vezérlés típusa',
     'Controllable'         => 'Vezérelhető',
+    'Current'              => 'Current',                // Added - 2015-04-18
     'Cycle'                => 'Ciklikus nézet',
     'CycleWatch'           => 'Ciklikus nézet',
     'DateTime'             => 'Dátum/Idő', 
@@ -248,12 +292,15 @@ $SLANG = array(
     'DefaultRate'          => 'Alapértelmezett sebesség',
     'DefaultScale'         => 'Alapértelmezett méret',
     'DefaultView'          => 'Alapértelmezett nézet',
+    'Deinterlacing'        => 'Deinterlacing',          // Added - 2015-04-18
+    'Delay'                => 'Delay',                  // Added - 2015-04-18
     'Delete'               => 'Törlés',
     'DeleteAndNext'        => 'Törlés &amp;<br>következő',
     'DeleteAndPrev'        => 'Törlés &amp;<br>előző',
     'DeleteSavedFilter'    => 'Mentett szűrő törlése',
     'Description'          => 'Leírás',
     'DetectedCameras'      => 'Érzékelt kamerák',
+    'DetectedProfiles'     => 'Detected Profiles',      // Added - 2015-04-18
     'Device'               => 'Eszköz',
     'DeviceChannel'        => 'Eszköz csatornája',
     'DeviceFormat'         => 'Eszköz formátuma',
@@ -265,6 +312,7 @@ $SLANG = array(
     'Disk'                 => 'Tárhely',
     'Display'              => 'Megjelenés',
     'Displaying'           => 'Megjelenítés',
+    'DoNativeMotionDetection'=> 'Do Native Motion Detection', // Added - 2015-04-18
     'Donate'               => 'Kérem támogasson',
     'DonateAlready'        => 'Nem, én már támogattam',
     'DonateEnticement'     => 'Ön már jó ideje használja a ZoneMindert, és reméljük hasznos eszköznek tartja háza vagy munkahelye biztonságában. Bár a ZoneMinder egy szabad, nyílt forráskódú termék és az is marad, a fejlesztése pénzbe kerül. Ha van lehetősége támogatni a jövőbeni fejlesztéseket és az új funkciókat kérem, tegye meg. A támogatás teljesen önkéntes, de nagyon megbecsült és mértéke is tetszőleges.<br><br>Ha támogatni szertne, kérem, válasszon az alábbi lehetőségekből vagy látogassa meg a http://www.zoneminder.com/donate.html oldalt.<br><br>Köszönjük, hogy használja a ZoneMinder-t és ne felejtse el meglátogatni a fórumokat a ZoneMinder.com oldalon támogatásért és ötletekért, hogy a jövőben is még jobban ki tudja használni a ZoneMinder lehetőségeit.',
@@ -316,10 +364,12 @@ $SLANG = array(
     'Feed'                 => 'Folyam',
     'Ffmpeg'               => 'ffmpeg',
     'File'                 => 'Fájl',
+    'Filter'               => 'Filter',                 // Added - 2015-04-18
     'FilterArchiveEvents'  => 'Minden találat archiválása',
     'FilterDeleteEvents'   => 'Minden találat törlése',
     'FilterEmailEvents'    => 'Minden találat adatainak küldése E-mailben',
     'FilterExecuteEvents'  => 'Parancs futtatása minden találaton',
+    'FilterLog'            => 'Filter log',             // Added - 2015-04-18
     'FilterMessageEvents'  => 'Minden találat adatainak üzenése',
     'FilterPx'             => 'Szűrt képkockák',
     'FilterUnset'          => 'Meg kell adnod a szűrő szélességét és magasságát',
@@ -329,6 +379,12 @@ $SLANG = array(
     'First'                => 'Első',
     'FlippedHori'          => 'Vízszintes tükrözés',
     'FlippedVert'          => 'Függőleges tükrözés',
+    'FnMocord'             => 'Folyamatos mozgással',
+    'FnModect'             => 'Mozgásérzékelő',
+    'FnMonitor'            => 'Csak monitorozás',
+    'FnNodect'             => 'Külső érzékelő',
+    'FnNone'               => 'Letiltva',
+    'FnRecord'             => 'Folyamatos felvétel',
     'Focus'                => 'Fókusz',
     'ForceAlarm'           => 'Kézi riasztás',
     'Format'               => 'Formátum',
@@ -379,6 +435,7 @@ $SLANG = array(
     'Last'                 => 'Utolsó',
     'Layout'               => 'Elrendezés',
     'Level'                => 'Szint', 
+    'Libvlc'               => 'Libvlc',
     'LimitResultsPost'     => 'találatra', // This is used at the end of the phrase 'Limit to first N results only'
     'LimitResultsPre'      => 'Csak az első', // This is used at the beginning of the phrase 'Limit to first N results only'
     'Line'                 => 'Sor',
@@ -461,6 +518,7 @@ $SLANG = array(
     'MinZoomSpeed'         => 'Min. zoom sebesség',
     'MinZoomStep'          => 'Min. zoom lépték',
     'Misc'                 => 'Egyéb',
+    'Mode'                 => 'Mode',                   // Added - 2015-04-18
     'Monitor'              => 'Kamera',
     'MonitorIds'           => 'Kamera&nbsp;azonosítók',
     'MonitorPreset'        => 'Előre beállított kameraprofilok',
@@ -471,7 +529,13 @@ $SLANG = array(
     'Montage'              => 'Többkamerás nézet',
     'Month'                => 'Hónapban',
     'More'                 => 'Több',
+    'MotionFrameSkip'      => 'Motion Frame Skip',
     'Move'                 => 'Mozgás',
+    'Mtg2widgrd'           => '2 oszlopban',
+    'Mtg3widgrd'           => '3 oszlopban',
+    'Mtg3widgrx'           => '3 oszlopban skálázva, riasztás esetén kinagyítva',
+    'Mtg4widgrd'           => '4 oszlopban',
+    'MtgDefault'           => 'Böngésző alapértelmezése szerint',
     'MustBeGe'             => 'nagyobbnak vagy egyenlőnek kell lennie',
     'MustBeLe'             => 'kisebbnek vagy egyenlőnek kell lennie',
     'MustConfirmPassword'  => 'Meg kell erősítenie a jelszót',
@@ -500,6 +564,9 @@ $SLANG = array(
     'NumPresets'           => 'Profilok száma',
     'Off'                  => 'Ki',
     'On'                   => 'Be',
+    'OnvifCredentialsIntro'=> 'Please supply user name and password for the selected camera.<br/>If no user has been created for the camera then the user given here will be created with the given password.<br/><br/>', // Added - 2015-04-18
+    'OnvifProbe'           => 'ONVIF',                  // Added - 2015-04-18
+    'OnvifProbeIntro'      => 'The list below shows detected ONVIF cameras and whether they are already being used or available for selection.<br/><br/>Select the desired entry from the list below.<br/><br/>Please note that not all cameras may be detected and that choosing a camera here may overwrite any values you already have configured for the current monitor.<br/><br/>', // Added - 2015-04-18
     'OpEq'                 => 'egyenlő',
     'OpGt'                 => 'nagyobb mint',
     'OpGtEq'               => 'nagyobb van egyenlő',
@@ -537,6 +604,7 @@ $SLANG = array(
     'Play'                 => 'Lejátszás',
     'PlayAll'              => 'Mind lejátszása',
     'PleaseWait'           => 'Kérlek várj...',
+    'Plugins'              => 'Plugins',                // Added - 2015-04-18
     'Point'                => 'Pont',
     'PostEventImageBuffer' => 'Esemény utáni képkockák a pufferben',
     'PreEventImageBuffer'  => 'Esemény elötti képkockák a pufferben',
@@ -545,6 +613,9 @@ $SLANG = array(
     'Presets'              => 'Előre beállított profilok',
     'Prev'                 => 'Előző',
     'Probe'                => 'Érzékelés',
+    'ProfileProbe'         => 'Stream Probe',           // Added - 2015-04-18
+    'ProfileProbeIntro'    => 'The list below shows the existing stream profiles of the selected camera .<br/><br/>Select the desired entry from the list below.<br/><br/>Please note that ZoneMinder cannot configure additional profiles and that choosing a camera here may overwrite any values you already have configured for the current monitor.<br/><br/>', // Added - 2015-04-18
+    'Progress'             => 'Progress',               // Added - 2015-04-18
     'Protocol'             => 'Protocol',
     'Rate'                 => 'FPS',
     'Real'                 => 'Valós',
@@ -560,7 +631,7 @@ $SLANG = array(
     'RemoteMethod'         => 'Hálózati cím mód',
     'RemoteProtocol'       => 'Hálózati protokoll',
     'Rename'               => 'Átnevezés',
-    'Replay'               => 'Esemény visszajátszás',
+    'Replay'               => 'Események visszajátszása',
     'ReplayAll'            => 'Mindet',
     'ReplayGapless'        => 'Szünet nélkülieket',
     'ReplaySingle'         => 'Egyenként',
@@ -632,6 +703,7 @@ $SLANG = array(
     'Submit'               => 'Küldés',
     'System'               => 'Rendszer',
     'SystemLog'            => 'Rendszernapló',
+    'TargetColorspace'     => 'Target colorspace',      // Added - 2015-04-18
     'Tele'                 => 'Táv',
     'Thumbnail'            => 'Előnézet',
     'Tilt'                 => 'Fel-le mozgás',
@@ -639,6 +711,10 @@ $SLANG = array(
     'TimeDelta'            => 'Idő változás',
     'TimeStamp'            => 'Időbélyeg',
     'Timeline'             => 'Idővonal',
+    'TimelineTip1'         => 'Mozgassa az egeret a grafikon fölött, hogy képet és adatokat láthasson az eseményről.',
+    'TimelineTip2'         => 'Kattintson a grafikon színes részére, vagy a pillanatképre, hogy láthassa a részleteket.',
+    'TimelineTip3'         => 'Kattintson a grafikon hátterére, hogy az időskálába nagyítson tetszőleges időpontban.',
+    'TimelineTip4'         => 'Használja az alábbi gombokat hogy az időskálát csúsztassa, vagy kicsinyítse.',
     'Timestamp'            => 'Időbélyeg',
     'TimestampLabelFormat' => 'Időbélyeg formátuma',
     'TimestampLabelX'      => 'Elhelyezés X pozició',
@@ -649,7 +725,7 @@ $SLANG = array(
     'TotalBrScore'         => 'Össz.<br/>pontszám',
     'TrackDelay'           => 'Késleltetés követése',
     'TrackMotion'          => 'Mozgás követése',
-    'Triggers'             => 'Egyéb előidézők',
+    'Triggers'             => 'Külső érzékelők (triggers)',
     'TurboPanSpeed'        => 'Jobb-bal gyorssebesség',
     'TurboTiltSpeed'       => 'Fel-le gyorssebesség',
     'Type'                 => 'Típus',
@@ -665,9 +741,13 @@ $SLANG = array(
     'UseFilter'            => 'Szűrőt használ',
     'UseFilterExprsPost'   => '&nbsp;szürés&nbsp; használata', // This is used at the end of the phrase 'use N filter expressions'
     'UseFilterExprsPre'    => '&nbsp;', // This is used at the beginning of the phrase 'use N filter expressions'
+    'UsedPlugins'          => 'Used Plugins',           // Added - 2015-04-18
     'User'                 => 'Felhasználó',
     'Username'             => 'Felhasználónév',
     'Users'                => 'Felhasználók',
+    'V4L'                  => 'V4L',                    // Added - 2015-04-18
+    'V4LCapturesPerFrame'  => 'Captures Per Frame',     // Added - 2015-04-18
+    'V4LMultiBuffer'       => 'Multi Buffering',        // Added - 2015-04-18
     'Value'                => 'Érték',
     'Version'              => 'Verzió',
     'VersionIgnore'        => 'Ezen verzió figyelmen kívül hagyása',
@@ -707,6 +787,7 @@ $SLANG = array(
     'Zone'                 => 'Zóna:',
     'ZoneAlarmColour'      => 'Riasztott terület<br>színezése (R/G/B)',
     'ZoneArea'             => 'Zóna lefedettsége',
+    'ZoneExtendAlarmFrames' => 'Extend Alarm Frame Count',
     'ZoneFilterSize'       => 'Szélesség és magasság<br>szűrés képpontban',
     'ZoneMinMaxAlarmArea'  => 'Min/Max riasztó terület',
     'ZoneMinMaxBlobArea'   => 'Min/Max Blob terület',
@@ -847,6 +928,20 @@ function zmVlang( $langVarArray, $count )
 // These overrides are in the form show below where the array key represents the option name minus the initial ZM_
 // So for example, to override the help text for ZM_LANG_DEFAULT do
 $OLANG = array(
+	'OPTIONS_FFMPEG' => array(
+		'Help' => "Parameters in this field are passwd on to FFmpeg. Multiple parameters can be separated by ,~~ ".
+		          "Examples (do not enter quotes)~~~~".
+		          "\"allowed_media_types=video\" Set datatype to request fromcam (audio, video, data)~~~~".
+		          "\"reorder_queue_size=nnn\" Set number of packets to buffer for handling of reordered packets~~~~".
+		          "\"loglevel=debug\" Set verbosiy of FFmpeg (quiet, panic, fatal, error, warning, info, verbose, debug)"
+	),
+	'OPTIONS_LIBVLC' => array(
+		'Help' => "Parameters in this field are passwd on to libVLC. Multiple parameters can be separated by ,~~ ".
+		          "Examples (do not enter quotes)~~~~".
+		          "\"--rtp-client-port=nnn\" Set local port to use for rtp data~~~~". 
+		          "\"--verbose=2\" Set verbosity of libVLC"
+	),
+	
 //    'LANG_DEFAULT' => array(
 //        'Prompt' => "This is a new prompt for this option",
 //        'Help' => "This is some new help for this option which will be displayed in the popup window when the ? is clicked"

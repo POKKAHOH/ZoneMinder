@@ -36,7 +36,6 @@ require ZoneMinder::Base;
 require ZoneMinder::Control;
 
 our @ISA = qw(ZoneMinder::Control);
-our $VERSION = $ZoneMinder::Base::VERSION;
 # ===================================================================================================================================
 #
 # FI9821 FOSCAM PT H264 Control Protocol
@@ -91,7 +90,7 @@ sub open
     $self->loadMonitor();
     use LWP::UserAgent;
     $self->{ua} = LWP::UserAgent->new;
-    $self->{ua}->agent( "ZoneMinder Control Agent/".ZM_VERSION );
+    $self->{ua}->agent( "ZoneMinder Control Agent/".ZoneMinder::Base::ZM_VERSION );
     $self->{state} = 'open';
 }
 
@@ -103,20 +102,38 @@ sub close
 
 sub printMsg
 {
-    my $self = shift;
     my $msg = shift;
     my $msg_len = length($msg);
     Debug( $msg."[".$msg_len."]" );
 }
 
 sub sendCmd
-{ 
+{
     my $self = shift;
     my $cmd = shift;
     my $result = undef;
+
+	my ($user, $password) = split /:/, $self->{Monitor}->{ControlDevice};
+	if ( ! $password ) {
+		$password = $user;
+		$user = 'admin';
+	}
+	$user = 'admin' if ! $user;
+	$password = 'pwd' if ! $password;
+
+	$cmd .= "&usr=$user&pwd=$password";
+
     printMsg( $cmd, "Tx" );
-    my $temps = time();
-    my $req = HTTP::Request->new( GET=>"http://".$self->{Monitor}->{ControlAddress}."/cgi-bin/CGIProxy.fcgi?usr%3Dadmin%26pwd%3D".$self->{Monitor}->{ControlDevice}."%26cmd%3D".$cmd."%26".$temps );
+    my $url;
+    if ( $self->{Monitor}->{ControlAddress} =~ /^http/ ) {
+        $url = $self->{Monitor}->{ControlAddress};
+    } else {
+        $url = "http://".$self->{Monitor}->{ControlAddress};
+    }
+	$url .= "/cgi-bin/CGIProxy.fcgi?cmd=$cmd%26".time;
+    printMsg( $url, "Tx" );
+
+    my $req = HTTP::Request->new( GET=>$url );
     my $res = $self->{ua}->request($req);
     if ( $res->is_success )
     {
@@ -135,14 +152,14 @@ sub reset
    # Setup OSD
    my $cmd = "setOSDSetting%26isEnableTimeStamp%3D0%26isEnableDevName%3D1%26dispPos%3D0%26isEnabledOSDMask%3D0";
    $self->sendCmd( $cmd );
-   # Setup For Stream=0 Resolution=720p Bandwith=4M FPS=30 KeyFrameInterval/GOP=100 VBR=ON
-   my $cmd = "setVideoStreamParam%26streamType%3D0%26resolution%3D0%26bitRate%3D4194304%26frameRate%3D30%26GOP%3D100%26isVBR%3D1";
+   # Setup For Stream=0 Resolution=720p Bandwidth=4M FPS=30 KeyFrameInterval/GOP=100 VBR=ON
+   $cmd = "setVideoStreamParam%26streamType%3D0%26resolution%3D0%26bitRate%3D4194304%26frameRate%3D30%26GOP%3D100%26isVBR%3D1";
    $self->sendCmd( $cmd );
    # Setup For Infrared AUTO
-   my $cmd = "setInfraLedConfig%26Mode%3D1";
+   $cmd = "setInfraLedConfig%26Mode%3D1";
    $self->sendCmd( $cmd );
    # Reset image settings
-   my $cmd = "resetImageSetting";
+   $cmd = "resetImageSetting";
    $self->sendCmd( $cmd );
 }
 
@@ -151,10 +168,10 @@ sub moveStop
    my $self = shift;
    Debug( "Move Stop" );
         my $cmd = "ptzStopRun";
-   $self->sendCmd( $cmd );      
-        my $cmd = "setDevName%26devName%3D.";
+   $self->sendCmd( $cmd );
+        $cmd = "setDevName%26devName%3D.";
         $self->sendCmd( $cmd );
-   my $cmd = "setOSDSetting%26isEnableDevName%3D1";
+   $cmd = "setOSDSetting%26isEnableDevName%3D1";
    $self->sendCmd( $cmd );
 }
 
@@ -185,7 +202,7 @@ sub moveConUp
     if ( $tiltspeed < 0 ) {
             $tiltspeed = 0;
                 }
-    Debug( "Move Up" );   
+    Debug( "Move Up" );
     if ( $osd eq "on" )
    {
     my $cmd = "setDevName%26devName%3DMove Up $tiltspeed";
@@ -193,7 +210,7 @@ sub moveConUp
         }
     my $cmd = "setPTZSpeed%26speed%3D$tiltspeed";
     $self->sendCmd( $cmd );
-    my $cmd = "ptzMoveUp";
+    $cmd = "ptzMoveUp";
     $self->sendCmd( $cmd );
     $self->autoStop( $self->{Monitor}->{AutoStopTimeout} );
 }
@@ -220,7 +237,7 @@ sub moveConDown
         }
     my $cmd = "setPTZSpeed%26speed%3D$tiltspeed";
     $self->sendCmd( $cmd );
-    my $cmd = "ptzMoveDown";
+    $cmd = "ptzMoveDown";
     $self->sendCmd( $cmd );
     $self->autoStop( $self->{Monitor}->{AutoStopTimeout} );
 }
@@ -245,7 +262,7 @@ sub moveConLeft
         }
     my $cmd = "setPTZSpeed%26speed%3D$panspeed";
     $self->sendCmd( $cmd );
-    my $cmd = "ptzMoveLeft";
+    $cmd = "ptzMoveLeft";
     $self->sendCmd( $cmd );
     $self->autoStop( $self->{Monitor}->{AutoStopTimeout} );
 }
@@ -273,7 +290,7 @@ sub moveConRight
         }
     my $cmd = "setPTZSpeed%26speed%3D$panspeed";
     $self->sendCmd( $cmd );
-    my $cmd = "ptzMoveRight";
+    $cmd = "ptzMoveRight";
     $self->sendCmd( $cmd );
     $self->autoStop( $self->{Monitor}->{AutoStopTimeout} );
 }
@@ -300,7 +317,7 @@ sub moveConUpLeft
         }
     my $cmd = "setPTZSpeed%26speed%3D$tiltspeed";
     $self->sendCmd( $cmd );
-    my $cmd = "ptzMoveTopLeft";
+    $cmd = "ptzMoveTopLeft";
     $self->sendCmd( $cmd );
     $self->autoStop( $self->{Monitor}->{AutoStopTimeout} );
 }
@@ -327,7 +344,7 @@ sub moveConUpRight
         }
     my $cmd = "setPTZSpeed%26speed%3D$tiltspeed";
     $self->sendCmd( $cmd );
-    my $cmd = "ptzMoveTopRight";
+    $cmd = "ptzMoveTopRight";
     $self->sendCmd( $cmd );
     $self->autoStop( $self->{Monitor}->{AutoStopTimeout} );
 }
@@ -354,7 +371,7 @@ sub moveConDownLeft
         }
     my $cmd = "setPTZSpeed%26speed%3D$tiltspeed";
     $self->sendCmd( $cmd );
-    my $cmd = "ptzMoveBottomLeft";
+    $cmd = "ptzMoveBottomLeft";
     $self->sendCmd( $cmd );
     $self->autoStop( $self->{Monitor}->{AutoStopTimeout} );
 }
@@ -381,7 +398,7 @@ sub moveConDownRight
         }
     my $cmd = "setPTZSpeed%26speed%3D$tiltspeed";
     $self->sendCmd( $cmd );
-    my $cmd = "ptzMoveBottomRight";
+    $cmd = "ptzMoveBottomRight";
     $self->sendCmd( $cmd );
     $self->autoStop( $self->{Monitor}->{AutoStopTimeout} );
 }
@@ -397,7 +414,7 @@ sub zoomConTele
         }
     my $cmd = "setInfraLedConfig%26mode%3D1";
     $self->sendCmd( $cmd );
-    my $cmd = "openInfraLed";
+    $cmd = "openInfraLed";
     $self->sendCmd( $cmd );
 }
 
@@ -412,7 +429,7 @@ sub zoomConWide
         }
     my $cmd = "setInfraLedConfig%26mode%3D1";
     $self->sendCmd( $cmd );
-    my $cmd = "closeInfraLed";
+    $cmd = "closeInfraLed";
     $self->sendCmd( $cmd );
 }
 
@@ -426,7 +443,7 @@ sub wake
          $self->sendCmd( $cmd );
         }
     my $cmd = "setInfraLedConfig%26mode%3D0";
-    $self->sendCmd( $cmd );       
+    $self->sendCmd( $cmd );
 }
 
 sub focusConNear
@@ -446,7 +463,7 @@ sub focusConNear
    {
          my $cmd = "setDevName%26devName%3DSharpness $speed";
          $self->sendCmd( $cmd );
-         my $cmd = "setOSDSetting%26isEnableDevName%3D1";
+         $cmd = "setOSDSetting%26isEnableDevName%3D1";
     $self->sendCmd( $cmd );
         }
     my $cmd = "setSharpness%26sharpness%3D$speed";
@@ -669,7 +686,7 @@ sub presetSet
                                     my $cmd = "setDevName%26devName%3DSet Preset $preset";
                                        $self->sendCmd( $cmd );
                       }
-                                                  my $cmd = "ptzAddPresetPoint%26name%3D$preset";
+                                                  $cmd = "ptzAddPresetPoint%26name%3D$preset";
                                                   $self->sendCmd( $cmd );
                         }
 }
@@ -688,7 +705,7 @@ sub presetGoto
                       }
                    my $cmd = "setPTZSpeed%26speed%3D0";
                         $self->sendCmd( $cmd );
-                        my $cmd = "ptzGotoPresetPoint%26name%3D$preset";
+                        $cmd = "ptzGotoPresetPoint%26name%3D$preset";
                         $self->sendCmd( $cmd );
                        }
 }
@@ -697,9 +714,9 @@ sub presetGoto
 __END__
 # Below is stub documentation for your module. You'd better edit it!
 
-=head1 FI9821W
+=head1 NAME
 
-ZoneMinder::Database - Perl extension for FOSCAM FI9821W
+ZoneMinder::Control::FI9821W - Perl extension for FOSCAM FI9821W
 
 =head1 SYNOPSIS
 
@@ -745,3 +762,4 @@ at your option, any later version of Perl 5 you may have available.
 
 
 =cut
+

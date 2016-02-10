@@ -33,8 +33,6 @@ require ZoneMinder::Control;
 
 our @ISA = qw(ZoneMinder::Control);
 
-our $VERSION = $ZoneMinder::Base::VERSION;
-
 # ==========================================================================
 #
 # mjpgSTreamer Control Protocol
@@ -81,7 +79,7 @@ sub open
     Debug( "Camera open" );
     use LWP::UserAgent;
     $self->{ua} = LWP::UserAgent->new;
-    $self->{ua}->agent( "ZoneMinder Control Agent/".ZM_VERSION );
+    $self->{ua}->agent( "ZoneMinder Control Agent/".ZoneMinder::Base::ZM_VERSION );
 
     $self->{state} = 'open';
 }
@@ -128,32 +126,32 @@ sub sendCmd
 sub Up
 {
    my $self = shift;
-   $self->moveConUp();	
+   $self->moveConUp();
 }
 
 sub Down
 {
    my $self = shift;
-   $self->moveConDown();	
+   $self->moveConDown();
 }
 
 sub Left
 {
    my $self = shift;
-   $self->moveConLeft();	
+   $self->moveConLeft();
 }
 
 sub Right
 {
    my $self = shift;
-   $self->moveConRight();	
+   $self->moveConRight();
 }
 
 
 sub reset
 {
    my $self = shift;
-   $self->cameraReset();	
+   $self->cameraReset();
 }
 
 

@@ -36,6 +36,12 @@
 #include "zm_event.h"
 #include "zm_monitor.h"
 
+// sendfile tricks
+extern "C"
+{
+#include "zm_sendfile.h"
+}
+
 #include "zmf.h"
 
 #if HAVE_SYS_SENDFILE_H
@@ -343,28 +349,24 @@ bool Event::SendFrameImage( const Image *image, bool alarm_frame )
 
 bool Event::WriteFrameImage( Image *image, struct timeval timestamp, const char *event_file, bool alarm_frame )
 {
-    if ( config.timestamp_on_capture )
+    Image* ImgToWrite;
+    Image* ts_image = NULL;
+
+    if ( config.timestamp_on_capture )  // stash the image we plan to use in another pointer regardless if timestamped.
     {
-        if ( !config.opt_frame_server || !SendFrameImage( image, alarm_frame) )
-        {
-            if ( alarm_frame && (config.jpeg_alarm_file_quality > config.jpeg_file_quality) )
-                image->WriteJpeg( event_file, config.jpeg_alarm_file_quality );
-            else
-                image->WriteJpeg( event_file );
-        }
+        ts_image = new Image(*image);
+        monitor->TimestampImage( ts_image, &timestamp );
+        ImgToWrite=ts_image;
     }
     else
+        ImgToWrite=image;
+
+    if ( !config.opt_frame_server || !SendFrameImage(ImgToWrite, alarm_frame) )
     {
-        Image ts_image( *image );
-        monitor->TimestampImage( &ts_image, &timestamp );
-        if ( !config.opt_frame_server || !SendFrameImage( &ts_image, alarm_frame) )
-        {
-            if ( alarm_frame && (config.jpeg_alarm_file_quality > config.jpeg_file_quality) )
-                ts_image.WriteJpeg( event_file, config.jpeg_alarm_file_quality );
-            else
-                ts_image.WriteJpeg( event_file );
-        }
+        int thisquality = ( alarm_frame && (config.jpeg_alarm_file_quality > config.jpeg_file_quality) ) ? config.jpeg_alarm_file_quality : 0 ;   // quality to use, zero is default
+        ImgToWrite->WriteJpeg( event_file, thisquality, (monitor->Exif() ? timestamp : (timeval){0,0}) ); // exif is only timestamp at present this switches on or off for write
     }
+    if(ts_image) delete(ts_image); // clean up if used.
     return( true );
 }
 
@@ -490,10 +492,17 @@ void Event::updateNotes( const StringSetMap &newNoteSetMap )
 
 void Event::AddFrames( int n_frames, Image **images, struct timeval **timestamps )
 {
+    for (int i = 0; i < n_frames; i += ZM_SQL_BATCH_SIZE) {
+        AddFramesInternal(n_frames, i, images, timestamps);
+    }
+}
+
+void Event::AddFramesInternal( int n_frames, int start_frame, Image **images, struct timeval **timestamps )
+{
     static char sql[ZM_SQL_LGE_BUFSIZ];
     strncpy( sql, "insert into Frames ( EventId, FrameId, TimeStamp, Delta ) values ", sizeof(sql) );
     int frameCount = 0;
-    for ( int i = 0; i < n_frames; i++ )
+    for ( int i = start_frame; i < n_frames && i - start_frame < ZM_SQL_BATCH_SIZE; i++ )
     {
         if ( !timestamps[i]->tv_sec )
         {
@@ -554,13 +563,15 @@ void Event::AddFrame( Image *image, struct timeval timestamp, int score, Image *
     struct DeltaTimeval delta_time;
     DELTA_TIMEVAL( delta_time, timestamp, start_time, DT_PREC_2 );
 
-    bool db_frame = (score>=0) || ((frames%config.bulk_frame_interval)==0) || !frames;
+    const char *frame_type = score>0?"Alarm":(score<0?"Bulk":"Normal");
+    if ( score < 0 )
+        score = 0;
 
+    bool db_frame = (strcmp(frame_type,"Bulk") != 0) || ((frames%config.bulk_frame_interval)==0) || !frames;
     if ( db_frame )
     {
-        const char *frame_type = score>0?"Alarm":(score<0?"Bulk":"Normal");
 
-        Debug( 1, "Adding frame %d to DB", frames );
+        Debug( 1, "Adding frame %d of type \"%s\" to DB", frames, frame_type );
         static char sql[ZM_SQL_MED_BUFSIZ];
         snprintf( sql, sizeof(sql), "insert into Frames ( EventId, FrameId, Type, TimeStamp, Delta, Score ) values ( %d, %d, '%s', from_unixtime( %ld ), %s%ld.%02ld, %d )", id, frames, frame_type, timestamp.tv_sec, delta_time.positive?"":"-", delta_time.sec, delta_time.fsec, score );
         if ( mysql_query( &dbconn, sql ) )
@@ -570,8 +581,8 @@ void Event::AddFrame( Image *image, struct timeval timestamp, int score, Image *
         }
         last_db_frame = frames;
 
-        // We are writing a bulk frame
-        if ( score < 0 )
+        // We are writing a Bulk frame
+        if ( !strcmp( frame_type,"Bulk") )
         {
             snprintf( sql, sizeof(sql), "update Events set Length = %s%ld.%02ld, Frames = %d, AlarmFrames = %d, TotScore = %d, AvgScore = %d, MaxScore = %d where Id = %d", delta_time.positive?"":"-", delta_time.sec, delta_time.fsec, frames, alarm_frames, tot_score, (int)(alarm_frames?(tot_score/alarm_frames):0), max_score, id );
             if ( mysql_query( &dbconn, sql ) )
@@ -584,7 +595,8 @@ void Event::AddFrame( Image *image, struct timeval timestamp, int score, Image *
 
     end_time = timestamp;
 
-    if ( score > 0 )
+        // We are writing an Alarm frame
+        if ( !strcmp( frame_type,"Alarm") )
     {
         alarm_frames++;
 
@@ -769,7 +781,7 @@ bool EventStream::loadEventData( int event_id )
         else
             snprintf( event_data->path, sizeof(event_data->path), "%s/%s/%ld/%ld", staticConfig.PATH_WEB.c_str(), config.dir_events, event_data->monitor_id, event_data->event_id );
     }
-    event_data->frame_count = atoi(dbrow[2]);
+    event_data->frame_count = dbrow[2] == NULL ? 0 : atoi(dbrow[2]);
     event_data->duration = atof(dbrow[4]);
 
     updateFrameRate( (double)event_data->frame_count/event_data->duration );
@@ -870,6 +882,11 @@ void EventStream::processCommand( const CmdMsg *msg )
                 // Clear paused flag
                 paused = false;
             }
+
+	    // If we are in single event mode and at the last frame, replay the current event
+	    if ( (mode == MODE_SINGLE) && ((unsigned int)curr_frame_id == event_data->frame_count) )
+		curr_frame_id = 1;
+
             replay_rate = ZM_RATE_BASE;
             break;
         }
@@ -1043,7 +1060,7 @@ void EventStream::processCommand( const CmdMsg *msg )
             if ( replay_rate >= 0 )
                 curr_frame_id = 0;
             else
-                curr_frame_id = event_data->frame_count-1;
+                curr_frame_id = event_data->frame_count+1;
             paused = false;
             forceEventChange = true;
             break;
@@ -1052,7 +1069,7 @@ void EventStream::processCommand( const CmdMsg *msg )
         {
             Debug( 1, "Got NEXT command" );
             if ( replay_rate >= 0 )
-                curr_frame_id = event_data->frame_count-1;
+                curr_frame_id = event_data->frame_count+1;
             else
                 curr_frame_id = 0;
             paused = false;
@@ -1070,6 +1087,11 @@ void EventStream::processCommand( const CmdMsg *msg )
         {
             Debug( 1, "Got QUERY command, sending STATUS" );
             break;
+        }
+	case CMD_QUIT :
+        {
+           Info ("User initiated exit - CMD_QUIT");
+           break;
         }
         default :
         {
@@ -1108,6 +1130,9 @@ void EventStream::processCommand( const CmdMsg *msg )
             exit( -1 );
         }
     }
+    // quit after sending a status, if this was a quit request
+    if ((MsgCommand)msg->msg_data[0]==CMD_QUIT)
+        exit(0);
 
     updateFrameRate( (double)event_data->frame_count/event_data->duration );
 }
@@ -1161,7 +1186,7 @@ void EventStream::checkEventLoaded()
                 loadEventData( event_id );
 
                 Debug( 2, "Current frame id = %d", curr_frame_id );
-                if ( curr_frame_id <= 0 )
+                if ( replay_rate < 0 )
                     curr_frame_id = event_data->frame_count;
                 else
                     curr_frame_id = 1;
@@ -1257,14 +1282,19 @@ bool EventStream::sendFrame( int delta_us )
                 case STREAM_JPEG :
                     send_image->EncodeJpeg( img_buffer, &img_buffer_size );
                     break;
-                case STREAM_RAW :
-                    img_buffer = (uint8_t*)(send_image->Buffer());
-                    img_buffer_size = send_image->Size();
-                    break;
                 case STREAM_ZIP :
+#if HAVE_ZLIB_H
                     unsigned long zip_buffer_size;
                     send_image->Zip( img_buffer, &zip_buffer_size );
                     img_buffer_size = zip_buffer_size;
+                    break;
+#else
+                    Error("zlib is required for zipped images. Falling back to raw image");
+                    type = STREAM_RAW;
+#endif // HAVE_ZLIB_H
+                case STREAM_RAW :
+                    img_buffer = (uint8_t*)(send_image->Buffer());
+                    img_buffer_size = send_image->Size();
                     break;
                 default:
                     Fatal( "Unexpected frame type %d", type );
@@ -1292,7 +1322,7 @@ bool EventStream::sendFrame( int delta_us )
 	if(send_raw) {
 #if HAVE_SENDFILE  
 		fprintf( stdout, "Content-Length: %d\r\n\r\n", (int)filestat.st_size );
-		if(sendfile(fileno(stdout), fileno(fdj), 0, (int)filestat.st_size) != (int)filestat.st_size) {
+		if(zm_sendfile(fileno(stdout), fileno(fdj), 0, (int)filestat.st_size) != (int)filestat.st_size) {
 			/* sendfile() failed, use standard way instead */
 			img_buffer_size = fread( img_buffer, 1, sizeof(temp_img_buffer), fdj );
 			if ( fwrite( img_buffer, img_buffer_size, 1, stdout ) != 1 ) {
@@ -1405,8 +1435,10 @@ void EventStream::runStream()
             if ( ((curr_frame_id-1)%frame_mod) == 0 )
             {
                 delta_us = (unsigned int)(frame_data->delta * 1000000);
-                if ( effective_fps < base_fps )
-                    delta_us = (unsigned int)((delta_us * base_fps)/effective_fps);
+                // if effective > base we should speed up frame delivery
+                delta_us = (unsigned int)((delta_us * base_fps)/effective_fps);
+                // but must not exceed maxfps
+                delta_us = max(delta_us, 1000000 / maxfps); 
                 send_frame = true;
             }
         }

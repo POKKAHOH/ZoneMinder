@@ -1,18 +1,25 @@
 AUTOMAKE_OPTIONS = foreign
+ACLOCAL_AMFLAGS = -I m4
 
 # And these to the user and group of your webserver
 webuser = @WEB_USER@
 webgroup = @WEB_GROUP@
+zmconfigdir = @ZM_CONFIG_DIR@
 
-sysconf_DATA = \
+zmconfig_DATA = \
 	zm.conf
+
+if COND_ONVIF
+   MAYBE_ONVIF = onvif
+endif
 
 SUBDIRS = \
 	src \
 	web \
 	scripts \
 	db \
-	misc
+	misc \
+ 	$(MAYBE_ONVIF)
 
 EXTRA_DIST = \
 	zm.conf.in \
@@ -20,13 +27,14 @@ EXTRA_DIST = \
 
 # Yes, you are correct. This is a HACK!
 install-data-hook:
-	( cd $(DESTDIR)$(sysconfdir); chown $(webuser):$(webgroup) $(sysconf_DATA); chmod 600 $(sysconf_DATA) )
-	( if ! test -e $(ZM_RUNDIR); then mkdir -p $(ZM_RUNDIR); fi; if test "$(ZM_RUNDIR)" != "/var/run"; then chown $(webuser):$(webgroup) $(ZM_RUNDIR); chmod u+w $(ZM_RUNDIR); fi )
-	( if ! test -e $(ZM_TMPDIR); then mkdir -m 700 -p $(ZM_TMPDIR); fi; if test "$(ZM_TMPDIR)" != "/tmp"; then chown $(webuser):$(webgroup) $(ZM_TMPDIR); chmod u+w $(ZM_TMPDIR); fi )
-	( if ! test -e $(ZM_LOGDIR); then mkdir -p $(ZM_LOGDIR); fi; if test "$(ZM_LOGDIR)" != "/var/log"; then chown $(webuser):$(webgroup) $(ZM_LOGDIR); chmod u+w $(ZM_LOGDIR); fi )
+	( cd $(DESTDIR)$(zmconfigdir); chown $(webuser):$(webgroup) $(zmconfig_DATA); chmod 600 $(zmconfig_DATA) )
+	( if ! test -e $(DESTDIR)$(ZM_RUNDIR); then mkdir -p $(DESTDIR)$(ZM_RUNDIR); fi; if test "$(DESTDIR)$(ZM_RUNDIR)" != "/var/run"; then chown $(webuser):$(webgroup) $(DESTDIR)$(ZM_RUNDIR); chmod u+w $(DESTDIR)$(ZM_RUNDIR); fi )
+	( if ! test -e $(DESTDIR)$(ZM_SOCKDIR); then mkdir -p $(DESTDIR)$(ZM_SOCKDIR); fi; if test "$(DESTDIR)$(ZM_SOCKDIR)" != "/var/run"; then chown $(webuser):$(webgroup) $(DESTDIR)$(ZM_SOCKDIR); chmod u+w $(DESTDIR)$(ZM_SOCKDIR); fi )
+	( if ! test -e $(DESTDIR)$(ZM_TMPDIR); then mkdir -m 700 -p $(DESTDIR)$(ZM_TMPDIR); fi; if test "$(DESTDIR)$(ZM_TMPDIR)" != "/tmp" && test "$(DESTDIR)$(ZM_TMPDIR)" != "/var/tmp"; then chown $(webuser):$(webgroup) $(DESTDIR)$(ZM_TMPDIR); chmod u+w $(DESTDIR)$(ZM_TMPDIR); fi )
 
 uninstall-hook:
 	@-( cd $(DESTDIR)$(webdir); rm -rf events graphics images sounds temp )
-	@-( if test "$(ZM_RUNDIR)" != "/var/run"; then rm -rf $(ZM_RUNDIR); fi )
-	@-( if test "$(ZM_TMPDIR)" != "/tmp"; then rm -rf $(ZM_TMPDIR); fi )
-	@-( if test "$(ZM_LOGDIR)" != "/var/log"; then rm -rf $(ZM_LOGDIR); fi )
+	@-( if test "$(DESTDIR)$(ZM_RUNDIR)" != "/var/run"; then rm -rf $(DESTDIR)$(ZM_RUNDIR); fi )
+	@-( if test "$(DESTDIR)$(ZM_SOCKDIR)" != "/var/run"; then rm -rf $(DESTDIR)$(ZM_SOCKDIR); fi )
+	@-( if test "$(DESTDIR)$(ZM_TMPDIR)" != "/tmp" && test "$(DESTDIR)$(ZM_TMPDIR)" != "/var/tmp"; then rm -rf $(DESTDIR)$(ZM_TMPDIR); fi )
+	@-( if test "$(DESTDIR)$(ZM_LOGDIR)" != "/var/log"; then rm -rf $(DESTDIR)$(ZM_LOGDIR); fi )

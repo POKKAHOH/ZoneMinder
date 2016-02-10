@@ -18,6 +18,15 @@
 // Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 //
 
+function translate( $name )
+{
+    global $SLANG;
+    if ( array_key_exists( $name, $SLANG ) )
+        return $SLANG[$name];
+    else
+        return $name;
+}
+
 function loadLanguage( $prefix="" )
 {
     global $user;
@@ -42,5 +51,19 @@ function loadLanguage( $prefix="" )
 
 if ( $langFile = loadLanguage() )
     require_once( $langFile );
+
+
+//
+// Date and time formats fallback, if not set up by the language file already
+//
+defined("DATE_FMT_CONSOLE_LONG") or define("DATE_FMT_CONSOLE_LONG", "D jS M, g:ia");		// This is the main console date/time, date() or strftime() format
+defined("DATE_FMT_CONSOLE_SHORT") or define( "DATE_FMT_CONSOLE_SHORT", "%H:%M" );		// This is the xHTML console date/time, date() or strftime() format
+
+defined("STRF_FMT_DATETIME") or define( "STRF_FMT_DATETIME", "%c" );				// Strftime locale aware format for dates with times
+defined("STRF_FMT_DATE") or define( "STRF_FMT_DATE", "%x" );					// Strftime locale aware format for dates without times
+defined("STRF_FMT_TIME") or define( "STRF_FMT_TIME", "%X" );					// Strftime locale aware format for times without dates
+
+defined("STRF_FMT_DATETIME_SHORT") or define( "STRF_FMT_DATETIME_SHORT", "%y/%m/%d %H:%M:%S" );	// Strftime shorter format for dates with time, not locale aware
+defined("STRF_FMT_DATETIME_SHORTER") or define( "STRF_FMT_DATETIME_SHORTER", "%m/%d %H:%M:%S" );// Strftime shorter format for dates with time, not locale aware, used where space is tight
 
 ?>

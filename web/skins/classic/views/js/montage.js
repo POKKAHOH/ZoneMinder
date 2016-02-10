@@ -113,7 +113,7 @@ function Monitor( index, id, connKey )
 
 function selectLayout( element )
 {
-    var cssFile = skinPath+'/views/css/'+$(element).get('value');
+	var cssFile = skinPath+'/css/'+Cookie.read('zmCSS')+'/views/'+$(element).get('value');
     if ( $('dynamicStyles') )
         $('dynamicStyles').destroy();
     new Asset.css( cssFile, { id: 'dynamicStyles' } );
@@ -134,6 +134,7 @@ function changeScale()
         streamImg.style.width = newWidth + "px";
         streamImg.style.height = newHeight + "px";
     }
+    Cookie.write( 'zmMontageScale', scale, { duration: 10*365 } );
 }
 
 var monitors = new Array();

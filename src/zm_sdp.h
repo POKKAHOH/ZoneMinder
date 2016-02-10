@@ -40,12 +40,12 @@ protected:
     {
         int payloadType;
         const char payloadName[6];
-        enum AVMediaType codecType;
-#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(54,25,0)
-        enum AVCodecID codecId;
+#if (LIBAVCODEC_VERSION_CHECK(52, 64, 0, 64, 0) || LIBAVUTIL_VERSION_CHECK(50, 14, 0, 14, 0))
+        AVMediaType codecType;
 #else
-        enum CodecID codecId;
+		enum CodecType codecType;
 #endif
+        _AVCODECID codecId;
         int clockRate;
         int autoChannels;
     };
@@ -53,12 +53,12 @@ protected:
     struct DynamicPayloadDesc
     {
         const char payloadName[32];
-        enum AVMediaType codecType;
-#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(54,25,0)
-        enum AVCodecID codecId;
-#else   
-        enum CodecID codecId;
-#endif  
+#if (LIBAVCODEC_VERSION_CHECK(52, 64, 0, 64, 0) || LIBAVUTIL_VERSION_CHECK(50, 14, 0, 14, 0))
+        AVMediaType codecType;
+#else
+		enum CodecType codecType;
+#endif
+        _AVCODECID codecId;
 
         //int clockRate;
         //int autoChannels;
@@ -103,6 +103,7 @@ public:
         int mClock;
         int mWidth;
         int mHeight;
+        std::string mSprops;
 
         ConnInfo *mConnInfo;
 
@@ -171,6 +172,14 @@ public:
             return( mHeight );
         }
 
+	void setSprops(const std::string props)
+	{
+		mSprops = props;
+	}
+	const std::string getSprops() const
+	{
+		return ( mSprops );
+	}
         const double getFrameRate() const
         {
             return( mFrameRate );
@@ -204,6 +213,7 @@ protected:
 
 public:
     SessionDescriptor( const std::string &url, const std::string &sdp );
+    ~SessionDescriptor();
 
     const std::string &getUrl() const
     {

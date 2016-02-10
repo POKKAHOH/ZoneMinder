@@ -31,6 +31,10 @@
 #include <signal.h>
 #include <stdarg.h>
 #include <errno.h>
+#ifdef __FreeBSD__
+#include <sys/thr.h>
+#include <libgen.h>
+#endif
 
 bool Logger::smInitialised = false;
 Logger *Logger::smInstance = 0;
@@ -232,13 +236,16 @@ void Logger::initialise( const std::string &id, const Options &options )
 
 void Logger::terminate()
 {
-    Info( "Terminating Logger" );
+    Debug(1, "Terminating Logger" );
 
     if ( mFileLevel > NOLOG )
         closeFile();
 
     if ( mSyslogLevel > NOLOG )
         closeSyslog();
+
+    if ( mDatabaseLevel > NOLOG )
+        closeDatabase();
 }
 
 bool Logger::boolEnv( const std::string &name, bool defaultValue )
@@ -468,6 +475,15 @@ void Logger::closeFile()
     }
 }
 
+void Logger::closeDatabase()
+{
+    if ( mDbConnected )
+    {
+        mysql_close( &mDbConnection );
+        mDbConnected = false;
+    }
+}
+
 void Logger::openSyslog()
 {
     (void) openlog( mId.c_str(), LOG_PID|LOG_NDELAY, LOG_LOCAL1 );
@@ -478,7 +494,7 @@ void Logger::closeSyslog()
     (void) closelog();
 }
 
-void Logger::logPrint( bool hex, const char * const file, const int line, const int level, const char *fstring, ... )
+void Logger::logPrint( bool hex, const char * const filepath, const int line, const int level, const char *fstring, ... )
 {
     if ( level <= mEffectiveLevel )
     {
@@ -487,6 +503,8 @@ void Logger::logPrint( bool hex, const char * const file, const int line, const 
         char            logString[8192];
         va_list         argPtr;
         struct timeval  timeVal;
+
+        const char * const file = basename(filepath);
         
         if ( level < PANIC || level > DEBUG9 )
             Panic( "Invalid logger level %d", level );
@@ -515,9 +533,25 @@ void Logger::logPrint( bool hex, const char * const file, const int line, const 
     #endif
 
         pid_t tid;
+#ifdef __FreeBSD__
+       long lwpid;
+       thr_self(&lwpid);
+       tid = lwpid;
+
+        if (tid < 0 ) // Thread/Process id
+#else
 #ifdef HAVE_SYSCALL
+	#ifdef __FreeBSD_kernel__
+        if ( (syscall(SYS_thr_self, &tid)) < 0 ) // Thread/Process id
+
+	# else
+	// SOLARIS doesn't have SYS_gettid; don't assume
+        #ifdef SYS_gettid
         if ( (tid = syscall(SYS_gettid)) < 0 ) // Thread/Process id
+        #endif // SYS_gettid
+	#endif
 #endif // HAVE_SYSCALL
+#endif
         tid = getpid(); // Process id
 
         char *logPtr = logString;
@@ -569,12 +603,12 @@ void Logger::logPrint( bool hex, const char * const file, const int line, const 
             char escapedString[(strlen(syslogStart)*2)+1];
 
             mysql_real_escape_string( &mDbConnection, escapedString, syslogStart, strlen(syslogStart) );
-            snprintf( sql, sizeof(sql), "insert into Logs ( TimeKey, Component, Pid, Level, Code, Message, File, Line ) values ( %ld.%06ld, '%s', %d, %d, '%s', '%s', '%s', %d )", timeVal.tv_sec, timeVal.tv_usec, mId.c_str(), tid, level, classString, escapedString, file, line );
+			
+            snprintf( sql, sizeof(sql), "insert into Logs ( TimeKey, Component, ServerId, Pid, Level, Code, Message, File, Line ) values ( %ld.%06ld, '%s', %d, %d, %d, '%s', '%s', '%s', %d )", timeVal.tv_sec, timeVal.tv_usec, mId.c_str(), staticConfig.SERVER_ID, tid, level, classString, escapedString, file, line );
             if ( mysql_query( &mDbConnection, sql ) )
             {
                 databaseLevel( NOLOG );
-                Fatal( "Can't insert log entry: %s", mysql_error( &mDbConnection ) );
-                exit( mysql_errno( &mDbConnection ) );
+				Error( "Can't insert log entry: %s", mysql_error( &mDbConnection ) );
             }
         }
         if ( level <= mSyslogLevel )
@@ -604,5 +638,6 @@ void logInit( const char *name, const Logger::Options &options )
 
 void logTerm()
 {
-    Logger::fetch()->terminate();
+    if ( Logger::smInstance )
+        delete Logger::smInstance;
 }

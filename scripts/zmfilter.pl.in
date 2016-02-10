@@ -20,11 +20,27 @@
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #
 # ==========================================================================
-#
-# This script continuously monitors the recorded events for the given
-# monitor and applies any filters which would delete and/or upload 
-# matching events
-#
+
+=head1 NAME
+
+zmfilter.pl - ZoneMinder tool to filter events
+
+=head1 SYNOPSIS
+
+ zmfilter.pl [-f <filter name>,--filter=<filter name>] | -v, --version
+
+=head1 DESCRIPTION
+
+This script continuously monitors the recorded events for the given
+monitor and applies any filters which would delete and/or upload
+matching events.
+
+=head1 OPTIONS
+
+ -f{filter name}, --filter={filter name}  - The name of a specific filter to run
+ -v, --version                            - Print ZoneMinder version
+
+=cut
 use strict;
 use bytes;
 
@@ -49,18 +65,22 @@ use POSIX;
 use Time::HiRes qw/gettimeofday/;
 use Date::Manip;
 use Getopt::Long;
-use Data::Dumper;
+use autouse 'Pod::Usage'=>qw(pod2usage);
+use autouse 'Data::Dumper'=>qw(Dumper);
 
-use constant EVENT_PATH => (ZM_DIR_EVENTS=~m|/|)?ZM_DIR_EVENTS:(ZM_PATH_WEB.'/'.ZM_DIR_EVENTS);
+use constant EVENT_PATH => ($Config{ZM_DIR_EVENTS}=~m|/|)
+             ? $Config{ZM_DIR_EVENTS}
+             : ($Config{ZM_PATH_WEB}.'/'.$Config{ZM_DIR_EVENTS})
+;
 
 logInit();
 logSetSignal();
 
-if ( ZM_OPT_UPLOAD )
+if ( $Config{ZM_OPT_UPLOAD} )
 {
     # Comment these out if you don't have them and don't want to upload
     # or don't want to use that format
-    if ( ZM_UPLOAD_ARCH_FORMAT eq "zip" )
+    if ( $Config{ZM_UPLOAD_ARCH_FORMAT} eq "zip" )
     {
         require Archive::Zip;
         import Archive::Zip qw( :ERROR_CODES :CONSTANTS );
@@ -69,7 +89,7 @@ if ( ZM_OPT_UPLOAD )
     {
         require Archive::Tar;
     }
-    if ( ZM_UPLOAD_PROTOCOL eq "ftp" )
+    if ( $Config{ZM_UPLOAD_PROTOCOL} eq "ftp" )
     {
         require Net::FTP;
     }
@@ -79,9 +99,9 @@ if ( ZM_OPT_UPLOAD )
     }
 }
 
-if ( ZM_OPT_EMAIL )
+if ( $Config{ZM_OPT_EMAIL} )
 {
-    if ( ZM_NEW_MAIL_MODULES )
+    if ( $Config{ZM_NEW_MAIL_MODULES} )
     {
         require MIME::Lite;
         require Net::SMTP;
@@ -92,9 +112,9 @@ if ( ZM_OPT_EMAIL )
     }
 }
 
-if ( ZM_OPT_MESSAGE )
+if ( $Config{ZM_OPT_MESSAGE} )
 {
-    if ( ZM_NEW_MAIL_MODULES )
+    if ( $Config{ZM_NEW_MAIL_MODULES} )
     {
         require MIME::Lite;
         require Net::SMTP;
@@ -104,7 +124,6 @@ if ( ZM_OPT_MESSAGE )
         require MIME::Entity;
     }
 }
-
 
 $| = 1;
 
@@ -112,19 +131,10 @@ $ENV{PATH}  = '/bin:/usr/bin';
 $ENV{SHELL} = '/bin/sh' if exists $ENV{SHELL};
 delete @ENV{qw(IFS CDPATH ENV BASH_ENV)};
 
-my $delay = ZM_FILTER_EXECUTE_INTERVAL;
+my $delay = $Config{ZM_FILTER_EXECUTE_INTERVAL};
 my $event_id = 0;
 my $filter_parm = "";
-
-sub Usage
-{
-    print( "
-Usage: zmfilter.pl [-f <filter name>,--filter=<filter name>]
-Parameters are :-
--f<filter name>, --filter=<filter name>  - The name of a specific filter to run
-");
-    exit( -1 );
-}
+my $version = 0;
 
 #
 # More or less replicates the equivalent PHP function
@@ -158,9 +168,19 @@ sub DateTimeToSQL
     return( strftime( "%Y-%m-%d %H:%M:%S", localtime( $dt_val ) ) );
 }
 
-if ( !GetOptions( 'filter=s'=>\$filter_parm ) )
-{
-    Usage();
+GetOptions(
+    'filter=s'      =>\$filter_parm,
+    'version'       =>\$version
+) or pod2usage(-exitstatus => -1);
+
+if ( $version ) {
+    print ZoneMinder::Base::ZM_VERSION . "\n";
+    exit(0);
+}
+
+if ( ! EVENT_PATH ) {
+    Error( "No event path defined. Config was $Config{ZM_DIR_EVENTS}\n" );
+    die;
 }
 
 chdir( EVENT_PATH );
@@ -186,10 +206,11 @@ my $last_action = 0;
 
 while( 1 )
 {
-    if ( (time() - $last_action) > ZM_FILTER_RELOAD_DELAY )
+    my $now = time;
+    if ( ($now - $last_action) > $Config{ZM_FILTER_RELOAD_DELAY} )
     {
         Debug( "Reloading filters\n" );
-        $last_action = time();
+        $last_action = $now;
         $filters = getFilters( $filter_parm );
     }
 
@@ -246,7 +267,7 @@ sub getFilters
     my $filter_name = shift;
 
     my @filters;
-    my $sql = "select * from Filters where";
+    my $sql = "SELECT * FROM Filters WHERE";
     if ( $filter_name )
     {
         $sql .= " Name = ? and";
@@ -255,25 +276,59 @@ sub getFilters
     {
         $sql .= " Background = 1 and";
     }
-    $sql .= " (AutoArchive = 1 or AutoVideo = 1 or AutoUpload = 1 or AutoEmail = 1 or AutoMessage = 1 or AutoExecute = 1 or AutoDelete = 1) order by Name";
-    my $sth = $dbh->prepare_cached( $sql ) or Fatal( "Can't prepare '$sql': ".$dbh->errstr() );
+    $sql .= "(  AutoArchive = 1
+                or AutoVideo = 1
+                or AutoUpload = 1
+                or AutoEmail = 1
+                or AutoMessage = 1
+                or AutoExecute = 1
+                or AutoDelete = 1
+             ) ORDER BY Name";
+    my $sth = $dbh->prepare_cached( $sql )
+        or Fatal( "Can't prepare '$sql': ".$dbh->errstr() );
     my $res;
     if ( $filter_name )
     {
-        $res = $sth->execute( $filter_name ) or Fatal( "Can't execute '$sql': ".$sth->errstr() );
+        $res = $sth->execute( $filter_name )
+            or Fatal( "Can't execute '$sql': ".$sth->errstr() );
     }
     else
     {
-        $res = $sth->execute() or Fatal( "Can't execute '$sql': ".$sth->errstr() );
+        $res = $sth->execute()
+            or Fatal( "Can't execute '$sql': ".$sth->errstr() );
     }
     FILTER: while( my $db_filter = $sth->fetchrow_hashref() )
     {
         Debug( "Found filter '$db_filter->{Name}'\n" );
         my $filter_expr = jsonDecode( $db_filter->{Query} );
-        my $sql = "select E.Id,E.MonitorId,M.Name as MonitorName,M.DefaultRate,M.DefaultScale,E.Name,E.Cause,E.Notes,E.StartTime,unix_timestamp(E.StartTime) as Time,E.Length,E.Frames,E.AlarmFrames,E.TotScore,E.AvgScore,E.MaxScore,E.Archived,E.Videoed,E.Uploaded,E.Emailed,E.Messaged,E.Executed from Events as E inner join Monitors as M on M.Id = E.MonitorId where not isnull(E.EndTime)";
+        my $sql = "SELECT E.Id,
+                          E.MonitorId,
+                          M.Name as MonitorName,
+                          M.DefaultRate,
+                          M.DefaultScale,
+                          E.Name,
+                          E.Cause,
+                          E.Notes,
+                          E.StartTime,
+                          unix_timestamp(E.StartTime) as Time,
+                          E.Length,
+                          E.Frames,
+                          E.AlarmFrames,
+                          E.TotScore,
+                          E.AvgScore,
+                          E.MaxScore,
+                          E.Archived,
+                          E.Videoed,
+                          E.Uploaded,
+                          E.Emailed,
+                          E.Messaged,
+                          E.Executed
+                   FROM Events as E
+                   INNER JOIN Monitors as M on M.Id = E.MonitorId
+        ";
         $db_filter->{Sql} = '';
 
-        if ( @{$filter_expr->{terms}} )
+        if ( $filter_expr->{terms} )
         {
             for ( my $i = 0; $i < @{$filter_expr->{terms}}; $i++ )
             {
@@ -293,6 +348,10 @@ sub getFilters
                     {
                         my ( $temp_attr_name ) = $filter_expr->{terms}[$i]->{attr} =~ /^Monitor(.+)$/;
                         $db_filter->{Sql} .= "M.".$temp_attr_name;
+                    }
+                    elsif ( $filter_expr->{terms}[$i]->{attr} eq 'ServerId' )
+                    {
+                        $db_filter->{Sql} .= "M.ServerId";
                     }
                     elsif ( $filter_expr->{terms}[$i]->{attr} eq 'DateTime' )
                     {
@@ -337,7 +396,17 @@ sub getFilters
                         {
                             $value = "'$temp_value'";
                         }
-                        elsif ( $filter_expr->{terms}[$i]->{attr} eq 'Name' || $filter_expr->{terms}[$i]->{attr} eq 'Cause' || $filter_expr->{terms}[$i]->{attr} eq 'Notes' )
+                        elsif ( $filter_expr->{terms}[$i]->{attr} eq 'ServerId' ) {
+                            if ( $temp_value eq 'ZM_SERVER_ID' ) {
+                                $value = "'$Config{ZM_SERVER_ID}'";
+                            } else {
+                                $value = "'$temp_value'";
+                            }
+                        }
+                        elsif ( $filter_expr->{terms}[$i]->{attr} eq 'Name'
+                                || $filter_expr->{terms}[$i]->{attr} eq 'Cause'
+                                || $filter_expr->{terms}[$i]->{attr} eq 'Notes'
+                        )
                         {
                             $value = "'$temp_value'";
                         }
@@ -346,7 +415,8 @@ sub getFilters
                             $value = DateTimeToSQL( $temp_value );
                             if ( !$value )
                             {
-                                Error( "Error parsing date/time '$temp_value', skipping filter '$db_filter->{Name}'\n" );
+                                Error( "Error parsing date/time '$temp_value', "
+                                      ."skipping filter '$db_filter->{Name}'\n" );
                                 next FILTER;
                             }
                             $value = "'$value'";
@@ -356,7 +426,8 @@ sub getFilters
                             $value = DateTimeToSQL( $temp_value );
                             if ( !$value )
                             {
-                                Error( "Error parsing date/time '$temp_value', skipping filter '$db_filter->{Name}'\n" );
+                                Error( "Error parsing date/time '$temp_value', "
+                                      ."skipping filter '$db_filter->{Name}'\n" );
                                 next FILTER;
                             }
                             $value = "to_days( '$value' )";
@@ -366,7 +437,8 @@ sub getFilters
                             $value = DateTimeToSQL( $temp_value );
                             if ( !$value )
                             {
-                                Error( "Error parsing date/time '$temp_value', skipping filter '$db_filter->{Name}'\n" );
+                                Error( "Error parsing date/time '$temp_value', "
+                                      ."skipping filter '$db_filter->{Name}'\n" );
                                 next FILTER;
                             }
                             $value = "extract( hour_second from '$value' )";
@@ -409,7 +481,17 @@ sub getFilters
         }
         if ( $db_filter->{Sql} )
         {
-            $sql .= " and ( ".$db_filter->{Sql}." )";
+            if ( $db_filter->{AutoMessage} )
+            {
+                # Include all events, including events that are still ongoing
+                # and have no EndTime yet
+                $sql .= " and ( ".$db_filter->{Sql}." )";
+            }
+            else
+            {
+                # Only include closed events (events with valid EndTime)
+                $sql .= " where not isnull(E.EndTime) and ( ".$db_filter->{Sql}." )";
+            }
         }
         my @auto_terms;
         if ( $db_filter->{AutoArchive} )
@@ -448,7 +530,7 @@ sub getFilters
         my $sort_column = '';
         if ( $filter_expr->{sort_field} eq 'Id' )
         {
-            $sort_column = "E.Id"; 
+            $sort_column = "E.Id";
         }
         elsif ( $filter_expr->{sort_field} eq 'MonitorName' )
         {
@@ -504,13 +586,15 @@ sub getFilters
             $script =~ s/\s.*$//;
             if ( !-e $script )
             {
-                Error( "Auto execute script '$script' not found, skipping filter '$db_filter->{Name}'\n" );
+                Error( "Auto execute script '$script' not found, "
+                      ."skipping filter '$db_filter->{Name}'\n" );
                 next FILTER;
 
             }
             elsif ( !-x $script )
             {
-                Error( "Auto execute script '$script' not executable, skipping filter '$db_filter->{Name}'\n" );
+                Error( "Auto execute script '$script' not executable, "
+                      ."skipping filter '$db_filter->{Name}'\n" );
                 next FILTER;
             }
         }
@@ -536,7 +620,7 @@ sub checkFilter
         "\n"
     );
     my $sql = $filter->{Sql};
-    
+
     if ( $filter->{HasDiskPercent} )
     {
         my $disk_percent = getDiskPercent();
@@ -553,7 +637,8 @@ sub checkFilter
         $sql =~ s/zmSystemLoad/$load/g;
     }
 
-    my $sth = $dbh->prepare_cached( $sql ) or Fatal( "Can't prepare '$sql': ".$dbh->errstr() );
+    my $sth = $dbh->prepare_cached( $sql )
+        or Fatal( "Can't prepare '$sql': ".$dbh->errstr() );
     my $res = $sth->execute();
     if ( !$res )
     {
@@ -570,31 +655,33 @@ sub checkFilter
             Info( "Archiving event $event->{Id}\n" );
             # Do it individually to avoid locking up the table for new events
             my $sql = "update Events set Archived = 1 where Id = ?";
-            my $sth = $dbh->prepare_cached( $sql ) or Fatal( "Can't prepare '$sql': ".$dbh->errstr() );
-            my $res = $sth->execute( $event->{Id} ) or Fatal( "Can't execute '$sql': ".$sth->errstr() );
+            my $sth = $dbh->prepare_cached( $sql )
+                or Fatal( "Can't prepare '$sql': ".$dbh->errstr() );
+            my $res = $sth->execute( $event->{Id} )
+                or Fatal( "Can't execute '$sql': ".$sth->errstr() );
         }
-        if ( ZM_OPT_FFMPEG && $filter->{AutoVideo} )
+        if ( $Config{ZM_OPT_FFMPEG} && $filter->{AutoVideo} )
         {
             if ( !$event->{Videoed} )
             {
                 $delete_ok = undef if ( !generateVideo( $filter, $event ) );
             }
         }
-        if ( ZM_OPT_EMAIL && $filter->{AutoEmail} )
+        if ( $Config{ZM_OPT_EMAIL} && $filter->{AutoEmail} )
         {
             if ( !$event->{Emailed} )
             {
                 $delete_ok = undef if ( !sendEmail( $filter, $event ) );
             }
         }
-        if ( ZM_OPT_MESSAGE && $filter->{AutoMessage} )
+        if ( $Config{ZM_OPT_MESSAGE} && $filter->{AutoMessage} )
         {
             if ( !$event->{Messaged} )
             {
                 $delete_ok = undef if ( !sendMessage( $filter, $event ) );
             }
         }
-        if ( ZM_OPT_UPLOAD && $filter->{AutoUpload} )
+        if ( $Config{ZM_OPT_UPLOAD} && $filter->{AutoUpload} )
         {
             if ( !$event->{Uploaded} )
             {
@@ -612,21 +699,27 @@ sub checkFilter
         {
             if ( $delete_ok )
             {
-                Info( "Deleting event $event->{Id}\n" );
+                Info( "Deleting event $event->{Id} from Monitor $event->{MonitorId}\n" );
                 # Do it individually to avoid locking up the table for new events
                 my $sql = "delete from Events where Id = ?";
-                my $sth = $dbh->prepare_cached( $sql ) or Fatal( "Can't prepare '$sql': ".$dbh->errstr() );
-                my $res = $sth->execute( $event->{Id} ) or Fatal( "Can't execute '$sql': ".$sth->errstr() );
+                my $sth = $dbh->prepare_cached( $sql )
+                    or Fatal( "Can't prepare '$sql': ".$dbh->errstr() );
+                my $res = $sth->execute( $event->{Id} )
+                    or Fatal( "Can't execute '$sql': ".$sth->errstr() );
 
-                if ( !ZM_OPT_FAST_DELETE )
+                if ( ! $Config{ZM_OPT_FAST_DELETE} )
                 {
                     my $sql = "delete from Frames where EventId = ?";
-                    my $sth = $dbh->prepare_cached( $sql ) or Fatal( "Can't prepare '$sql': ".$dbh->errstr() );
-                    my $res = $sth->execute( $event->{Id} ) or Fatal( "Can't execute '$sql': ".$sth->errstr() );
+                    my $sth = $dbh->prepare_cached( $sql )
+                        or Fatal( "Can't prepare '$sql': ".$dbh->errstr() );
+                    my $res = $sth->execute( $event->{Id} )
+                        or Fatal( "Can't execute '$sql': ".$sth->errstr() );
 
                     $sql = "delete from Stats where EventId = ?";
-                    $sth = $dbh->prepare_cached( $sql ) or Fatal( "Can't prepare '$sql': ".$dbh->errstr() );
-                    $res = $sth->execute( $event->{Id} ) or Fatal( "Can't execute '$sql': ".$sth->errstr() );
+                    $sth = $dbh->prepare_cached( $sql )
+                        or Fatal( "Can't prepare '$sql': ".$dbh->errstr() );
+                    $res = $sth->execute( $event->{Id} )
+                        or Fatal( "Can't execute '$sql': ".$sth->errstr() );
 
                     deleteEventFiles( $event->{Id}, $event->{MonitorId} );
                 }
@@ -650,7 +743,7 @@ sub generateVideo
     my $scale = $event->{DefaultScale}/100;
     my $format;
 
-    my @ffmpeg_formats = split( /\s+/, ZM_FFMPEG_FORMATS );
+    my @ffmpeg_formats = split( /\s+/, $Config{ZM_FFMPEG_FORMATS} );
     my $default_video_format;
     my $default_phone_format;
     foreach my $ffmpeg_format( @ffmpeg_formats )
@@ -678,7 +771,8 @@ sub generateVideo
         $format = $ffmpeg_formats[0];
     }
 
-    my $command = ZM_PATH_BIN."/zmvideo.pl -e ".$event->{Id}." -r ".$rate." -s ".$scale." -f ".$format;
+    my $command = $Config{ZM_PATH_BIN}."/zmvideo.pl -e "
+                  .$event->{Id}." -r ".$rate." -s ".$scale." -f ".$format;
     my $output = qx($command);
     chomp( $output );
     my $status = $? >> 8;
@@ -698,11 +792,13 @@ sub generateVideo
     else
     {
         my $sql = "update Events set Videoed = 1 where Id = ?";
-        my $sth = $dbh->prepare_cached( $sql ) or Fatal( "Can't prepare '$sql': ".$dbh->errstr() );
-        my $res = $sth->execute( $event->{Id} ) or Fatal( "Can't execute '$sql': ".$sth->errstr() );
+        my $sth = $dbh->prepare_cached( $sql )
+            or Fatal( "Can't prepare '$sql': ".$dbh->errstr() );
+        my $res = $sth->execute( $event->{Id} )
+            or Fatal( "Can't execute '$sql': ".$sth->errstr() );
         if ( wantarray() )
         {
-            return( $format, sprintf( "%s/%s", getEventPath( $event ), $output ) ); 
+            return( $format, sprintf( "%s/%s", getEventPath( $event ), $output ) );
         }
     }
     return( 1 );
@@ -713,22 +809,30 @@ sub uploadArchFile
     my $filter = shift;
     my $event = shift;
 
-    if ( !ZM_UPLOAD_HOST )
+    if ( ! $Config{ZM_UPLOAD_HOST} )
     {
         Error( "Cannot upload archive as no upload host defined" );
         return( 0 );
     }
 
     my $archFile = $event->{MonitorName}.'-'.$event->{Id};
-    my $archImagePath = getEventPath( $event )."/".((ZM_UPLOAD_ARCH_ANALYSE)?'{*analyse,*capture}':'*capture').".jpg";
+    my $archImagePath = getEventPath( $event )
+                       ."/"
+                       .(
+                            ( $Config{ZM_UPLOAD_ARCH_ANALYSE} )
+                            ? '{*analyse,*capture}'
+                            : '*capture'
+                        )
+                       .".jpg"
+    ;
     my @archImageFiles = glob($archImagePath);
     my $archLocPath;
 
     my $archError = 0;
-    if ( ZM_UPLOAD_ARCH_FORMAT eq "zip" )
+    if ( $Config{ZM_UPLOAD_ARCH_FORMAT} eq "zip" )
     {
         $archFile .= '.zip';
-        $archLocPath = ZM_UPLOAD_LOC_DIR.'/'.$archFile;
+        $archLocPath = $Config{ZM_UPLOAD_LOC_DIR}.'/'.$archFile;
         my $zip = Archive::Zip->new();
         Info( "Creating upload file '$archLocPath', ".int(@archImageFiles)." files\n" );
 
@@ -743,7 +847,10 @@ sub uploadArchFile
                 $archError = 1;
                 last;
             }
-            $member->desiredCompressionMethod( (ZM_UPLOAD_ARCH_COMPRESS)?&COMPRESSION_DEFLATED:&COMPRESSION_STORED );
+            $member->desiredCompressionMethod( $Config{ZM_UPLOAD_ARCH_COMPRESS}
+                                               ? &COMPRESSION_DEFLATED
+                                               : &COMPRESSION_STORED
+            );
         }
         if ( !$archError )
         {
@@ -759,9 +866,9 @@ sub uploadArchFile
             Error( "Error adding images to zip archive $archLocPath, not writing" );
         }
     }
-    elsif ( ZM_UPLOAD_ARCH_FORMAT eq "tar" )
+    elsif ( $Config{ZM_UPLOAD_ARCH_FORMAT} eq "tar" )
     {
-        if ( ZM_UPLOAD_ARCH_COMPRESS )
+        if ( $Config{ZM_UPLOAD_ARCH_COMPRESS} )
         {
             $archFile .= '.tar.gz';
         }
@@ -769,10 +876,15 @@ sub uploadArchFile
         {
             $archFile .= '.tar';
         }
-        $archLocPath = ZM_UPLOAD_LOC_DIR.'/'.$archFile;
+        $archLocPath = $Config{ZM_UPLOAD_LOC_DIR}.'/'.$archFile;
         Info( "Creating upload file '$archLocPath', ".int(@archImageFiles)." files\n" );
 
-        if ( $archError = !Archive::Tar->create_archive( $archLocPath, ZM_UPLOAD_ARCH_COMPRESS, @archImageFiles ) )
+        if ( $archError = !Archive::Tar->create_archive(
+                                $archLocPath,
+                                $Config{ZM_UPLOAD_ARCH_COMPRESS},
+                                @archImageFiles
+                          )
+           )
         {
             Error( "Tar error: ".Archive::Tar->error()."\n " );
         }
@@ -784,45 +896,67 @@ sub uploadArchFile
     }
     else
     {
-        if ( ZM_UPLOAD_PROTOCOL eq "ftp" )
+        if ( $Config{ZM_UPLOAD_PROTOCOL} eq "ftp" )
         {
-            Info( "Uploading to ".ZM_UPLOAD_HOST." using FTP\n" );
-            my $ftp = Net::FTP->new( ZM_UPLOAD_HOST, Timeout=>ZM_UPLOAD_TIMEOUT, Passive=>ZM_UPLOAD_FTP_PASSIVE, Debug=>ZM_UPLOAD_DEBUG );
+            Info( "Uploading to ".$Config{ZM_UPLOAD_HOST}." using FTP\n" );
+            my $ftp = Net::FTP->new(
+                $Config{ZM_UPLOAD_HOST},
+                Timeout=>$Config{ZM_UPLOAD_TIMEOUT},
+                Passive=>$Config{ZM_UPLOAD_FTP_PASSIVE},
+                Debug=>$Config{ZM_UPLOAD_DEBUG}
+            );
             if ( !$ftp )
             {
                 Error( "Can't create FTP connection: $@" );
                 return( 0 );
             }
-            $ftp->login( ZM_UPLOAD_USER, ZM_UPLOAD_PASS ) or Error( "FTP - Can't login" );
-            $ftp->binary() or Error( "FTP - Can't go binary" );
-            $ftp->cwd( ZM_UPLOAD_REM_DIR ) or Error( "FTP - Can't cwd" ) if ( ZM_UPLOAD_REM_DIR );
-            $ftp->put( $archLocPath ) or Error( "FTP - Can't upload '$archLocPath'" );
-            $ftp->quit() or Error( "FTP - Can't quit" );
+            $ftp->login( $Config{ZM_UPLOAD_USER}, $Config{ZM_UPLOAD_PASS} )
+                or Error( "FTP - Can't login" );
+            $ftp->binary()
+                or Error( "FTP - Can't go binary" );
+            $ftp->cwd( $Config{ZM_UPLOAD_REM_DIR} )
+                or Error( "FTP - Can't cwd" )
+                if ( $Config{ZM_UPLOAD_REM_DIR} );
+            $ftp->put( $archLocPath )
+                or Error( "FTP - Can't upload '$archLocPath'" );
+            $ftp->quit()
+                or Error( "FTP - Can't quit" );
         }
         else
         {
-            my $host = ZM_UPLOAD_HOST;
-            $host .= ":".ZM_UPLOAD_PORT if ( ZM_UPLOAD_PORT );
+            my $host = $Config{ZM_UPLOAD_HOST};
+            $host .= ":".$Config{ZM_UPLOAD_PORT}
+                if $Config{ZM_UPLOAD_PORT};
             Info( "Uploading to ".$host." using SFTP\n" );
-            my %sftpOptions = ( host=>ZM_UPLOAD_HOST, user=>ZM_UPLOAD_USER );
-            $sftpOptions{password} = ZM_UPLOAD_PASS if ( ZM_UPLOAD_PASS );
-            $sftpOptions{port} = ZM_UPLOAD_PORT if ( ZM_UPLOAD_PORT );
-            $sftpOptions{timeout} = ZM_UPLOAD_TIMEOUT if ( ZM_UPLOAD_TIMEOUT );
-            $sftpOptions{more} = [ '-o'=>'StrictHostKeyChecking=no' ];
-            $Net::SFTP::Foreign::debug = -1 if ( ZM_UPLOAD_DEBUG );
-            my $sftp = Net::SFTP::Foreign->new( ZM_UPLOAD_HOST, %sftpOptions );
+            my %sftpOptions = ( host=>$Config{ZM_UPLOAD_HOST}, user=>$Config{ZM_UPLOAD_USER} );
+            $sftpOptions{password} = $Config{ZM_UPLOAD_PASS}
+                if $Config{ZM_UPLOAD_PASS};
+            $sftpOptions{port} = $Config{ZM_UPLOAD_PORT}
+                if $Config{ZM_UPLOAD_PORT};
+            $sftpOptions{timeout} = $Config{ZM_UPLOAD_TIMEOUT}
+                if $Config{ZM_UPLOAD_TIMEOUT};
+            $sftpOptions{more} = [ '-o'=>'StrictHostKeyChecking=no' ]
+				if ! $Config{ZM_UPLOAD_STRICT};
+            $Net::SFTP::Foreign::debug = -1
+                if $Config{ZM_UPLOAD_DEBUG};
+            my $sftp = Net::SFTP::Foreign->new( $Config{ZM_UPLOAD_HOST}, %sftpOptions );
             if ( $sftp->error )
             {
                 Error( "Can't create SFTP connection: ".$sftp->error );
                 return( 0 );
             }
-            $sftp->setcwd( ZM_UPLOAD_REM_DIR ) or Error( "SFTP - Can't setcwd: ".$sftp->error ) if ( ZM_UPLOAD_REM_DIR );
-            $sftp->put( $archLocPath, $archFile ) or Error( "SFTP - Can't upload '$archLocPath': ".$sftp->error );
+            $sftp->setcwd( $Config{ZM_UPLOAD_REM_DIR} )
+                or Error( "SFTP - Can't setcwd: ".$sftp->error )
+                if $Config{ZM_UPLOAD_REM_DIR};
+            $sftp->put( $archLocPath, $archFile )
+                or Error( "SFTP - Can't upload '$archLocPath': ".$sftp->error );
         }
         unlink( $archLocPath );
         my $sql = "update Events set Uploaded = 1 where Id = ?";
-        my $sth = $dbh->prepare_cached( $sql ) or Fatal( "Can't prepare '$sql': ".$dbh->errstr() );
-        my $res = $sth->execute( $event->{Id} ) or Fatal( "Can't execute '$sql': ".$sth->errstr() );
+        my $sth = $dbh->prepare_cached( $sql )
+            or Fatal( "Can't prepare '$sql': ".$dbh->errstr() );
+        my $res = $sth->execute( $event->{Id} )
+            or Fatal( "Can't execute '$sql': ".$sth->errstr() );
     }
     return( 1 );
 }
@@ -843,9 +977,28 @@ sub substituteTags
     if ( $need_monitor )
     {
         my $db_now = strftime( "%Y-%m-%d %H:%M:%S", localtime() );
-        my $sql = "select M.Id, count(E.Id) as EventCount, count(if(E.Archived,1,NULL)) as ArchEventCount, count(if(E.StartTime>'$db_now' - INTERVAL 1 HOUR && E.Archived = 0,1,NULL)) as HourEventCount, count(if(E.StartTime>'$db_now' - INTERVAL 1 DAY && E.Archived = 0,1,NULL)) as DayEventCount, count(if(E.StartTime>'$db_now' - INTERVAL 7 DAY && E.Archived = 0,1,NULL)) as WeekEventCount, count(if(E.StartTime>'$db_now' - INTERVAL 1 MONTH && E.Archived = 0,1,NULL)) as MonthEventCount from Monitors as M left join Events as E on E.MonitorId = M.Id where MonitorId = ? group by E.MonitorId order by Id";
-        my $sth = $dbh->prepare_cached( $sql ) or Fatal( "Can't prepare '$sql': ".$dbh->errstr() );
-        my $res = $sth->execute( $event->{MonitorId} ) or Fatal( "Can't execute '$sql': ".$sth->errstr() );
+        my $sql = "SELECT
+            M.Id,
+            count(E.Id) as EventCount,
+            count(if(E.Archived,1,NULL))
+                as ArchEventCount,
+            count(if(E.StartTime>'$db_now' - INTERVAL 1 HOUR && E.Archived = 0,1,NULL))
+                as HourEventCount,
+            count(if(E.StartTime>'$db_now' - INTERVAL 1 DAY && E.Archived = 0,1,NULL))
+                as DayEventCount,
+            count(if(E.StartTime>'$db_now' - INTERVAL 7 DAY && E.Archived = 0,1,NULL))
+                as WeekEventCount,
+            count(if(E.StartTime>'$db_now' - INTERVAL 1 MONTH && E.Archived = 0,1,NULL))
+                as MonthEventCount
+            FROM Monitors as M LEFT JOIN Events as E on E.MonitorId = M.Id
+            WHERE MonitorId = ?
+            GROUP BY E.MonitorId
+            ORDER BY Id"
+        ;
+        my $sth = $dbh->prepare_cached( $sql )
+            or Fatal( "Can't prepare '$sql': ".$dbh->errstr() );
+        my $res = $sth->execute( $event->{MonitorId} )
+            or Fatal( "Can't execute '$sql': ".$sth->errstr() );
         $monitor = $sth->fetchrow_hashref();
         $sth->finish();
         return() if ( !$monitor );
@@ -858,9 +1011,14 @@ sub substituteTags
     my $max_alarm_score = 0;
     if ( $need_images )
     {
-        my $sql = "select * from Frames where EventId = ? and Type = 'Alarm' order by FrameId";
-        my $sth = $dbh->prepare_cached( $sql ) or Fatal( "Can't prepare '$sql': ".$dbh->errstr() );
-        my $res = $sth->execute( $event->{Id} ) or Fatal( "Can't execute '$sql': ".$sth->errstr() );
+        my $sql = "SELECT * FROM Frames
+                   WHERE EventId = ? AND Type = 'Alarm'
+                   ORDER BY FrameId"
+        ;
+        my $sth = $dbh->prepare_cached( $sql )
+            or Fatal( "Can't prepare '$sql': ".$dbh->errstr() );
+        my $res = $sth->execute( $event->{Id} )
+            or Fatal( "Can't execute '$sql': ".$sth->errstr() );
         while( my $frame = $sth->fetchrow_hashref() )
         {
             if ( !$first_alarm_frame )
@@ -876,7 +1034,7 @@ sub substituteTags
         $sth->finish();
     }
 
-    my $url = ZM_URL;
+    my $url = $Config{ZM_URL};
     $text =~ s/%ZP%/$url/g;
     $text =~ s/%MN%/$event->{MonitorName}/g;
     $text =~ s/%MET%/$monitor->{EventCount}/g;
@@ -908,18 +1066,38 @@ sub substituteTags
         $text =~ s/%EPIM%/$url?view=frame&mid=$event->{MonitorId}&eid=$event->{Id}&fid=$max_alarm_frame->{FrameId}/g;
         if ( $attachments_ref && $text =~ s/%EI1%//g )
         {
-            push( @$attachments_ref, { type=>"image/jpeg", path=>sprintf( "%s/%0".ZM_EVENT_IMAGE_DIGITS."d-capture.jpg", getEventPath( $event ), $first_alarm_frame->{FrameId} ) } );
+            push( @$attachments_ref,
+                {
+                    type=>"image/jpeg",
+                    path=>sprintf(
+                        "%s/%0".$Config{ZM_EVENT_IMAGE_DIGITS}."d-capture.jpg",
+                        getEventPath( $event ),
+                        $first_alarm_frame->{FrameId}
+                    )
+                }
+            );
         }
         if ( $attachments_ref && $text =~ s/%EIM%//g )
         {
             # Don't attach the same image twice
-            if ( !@$attachments_ref || ($first_alarm_frame->{FrameId} != $max_alarm_frame->{FrameId} ) )
+            if ( !@$attachments_ref
+                 || ($first_alarm_frame->{FrameId} != $max_alarm_frame->{FrameId} )
+            )
             {
-                push( @$attachments_ref, { type=>"image/jpeg", path=>sprintf( "%s/%0".ZM_EVENT_IMAGE_DIGITS."d-capture.jpg", getEventPath( $event ), $max_alarm_frame->{FrameId} ) } );
+                push( @$attachments_ref,
+                    {
+                        type=>"image/jpeg",
+                        path=>sprintf(
+                            "%s/%0".$Config{ZM_EVENT_IMAGE_DIGITS}."d-capture.jpg",
+                            getEventPath( $event ),
+                            $max_alarm_frame->{FrameId}
+                        )
+                    }
+                );
             }
         }
     }
-    if ( $attachments_ref && ZM_OPT_FFMPEG )
+    if ( $attachments_ref && $Config{ZM_OPT_FFMPEG} )
     {
         if ( $text =~ s/%EV%//g )
         {
@@ -943,7 +1121,7 @@ sub substituteTags
     $text =~ s/%FN%/$filter->{Name}/g;
     ( my $filter_name = $filter->{Name} ) =~ s/ /+/g;
     $text =~ s/%FP%/$url?view=filter&mid=$event->{MonitorId}&filter_name=$filter_name/g;
-    
+
     return( $text );
 }
 
@@ -952,12 +1130,12 @@ sub sendEmail
     my $filter = shift;
     my $event = shift;
 
-    if ( !ZM_FROM_EMAIL )
+    if ( ! $Config{ZM_FROM_EMAIL} )
     {
         Error( "No 'from' email address defined, not sending email" );
         return( 0 );
     }
-    if ( !ZM_EMAIL_ADDRESS )
+    if ( ! $Config{ZM_EMAIL_ADDRESS} )
     {
         Error( "No email address defined, not sending email" );
         return( 0 );
@@ -965,22 +1143,22 @@ sub sendEmail
 
     Info( "Creating notification email\n" );
 
-    my $subject = substituteTags( ZM_EMAIL_SUBJECT, $filter, $event );
+    my $subject = substituteTags( $Config{ZM_EMAIL_SUBJECT}, $filter, $event );
     return( 0 ) if ( !$subject );
     my @attachments;
-    my $body = substituteTags( ZM_EMAIL_BODY, $filter, $event, \@attachments );
+    my $body = substituteTags( $Config{ZM_EMAIL_BODY}, $filter, $event, \@attachments );
     return( 0 ) if ( !$body );
 
     Info( "Sending notification email '$subject'\n" );
 
     eval
     {
-        if ( ZM_NEW_MAIL_MODULES )
+        if ( $Config{ZM_NEW_MAIL_MODULES} )
         {
             ### Create the multipart container
             my $mail = MIME::Lite->new (
-                From => ZM_FROM_EMAIL,
-                To => ZM_EMAIL_ADDRESS,
+                From => $Config{ZM_FROM_EMAIL},
+                To => $Config{ZM_EMAIL_ADDRESS},
                 Subject => $subject,
                 Type => "multipart/mixed"
             );
@@ -1000,14 +1178,14 @@ sub sendEmail
                 );
             }
             ### Send the Message
-            MIME::Lite->send( "smtp", ZM_EMAIL_HOST, Timeout=>60 );
+            MIME::Lite->send( "smtp", $Config{ZM_EMAIL_HOST}, Timeout=>60 );
             $mail->send();
-        } 
+        }
         else
         {
             my $mail = MIME::Entity->build(
-                From => ZM_FROM_EMAIL,
-                To => ZM_EMAIL_ADDRESS,
+                From => $Config{ZM_FROM_EMAIL},
+                To => $Config{ZM_EMAIL_ADDRESS},
                 Subject => $subject,
                 Type => (($body=~/<html>/)?'text/html':'text/plain'),
                 Data => $body
@@ -1022,7 +1200,7 @@ sub sendEmail
                     Encoding => "base64"
                 );
             }
-            $mail->smtpsend( Host => ZM_EMAIL_HOST, MailFrom => ZM_FROM_EMAIL );
+            $mail->smtpsend( Host => $Config{ZM_EMAIL_HOST}, MailFrom => $Config{ZM_FROM_EMAIL} );
         }
     };
     if ( $@ )
@@ -1035,8 +1213,10 @@ sub sendEmail
         Info( "Notification email sent\n" );
     }
     my $sql = "update Events set Emailed = 1 where Id = ?";
-    my $sth = $dbh->prepare_cached( $sql ) or Fatal( "Can't prepare '$sql': ".$dbh->errstr() );
-    my $res = $sth->execute( $event->{Id} ) or Fatal( "Can't execute '$sql': ".$sth->errstr() );
+    my $sth = $dbh->prepare_cached( $sql )
+        or Fatal( "Can't prepare '$sql': ".$dbh->errstr() );
+    my $res = $sth->execute( $event->{Id} )
+        or Fatal( "Can't execute '$sql': ".$sth->errstr() );
 
     return( 1 );
 }
@@ -1046,12 +1226,12 @@ sub sendMessage
     my $filter = shift;
     my $event = shift;
 
-    if ( !ZM_FROM_EMAIL )
+    if ( ! $Config{ZM_FROM_EMAIL} )
     {
         Error( "No 'from' email address defined, not sending message" );
         return( 0 );
     }
-    if ( !ZM_MESSAGE_ADDRESS )
+    if ( ! $Config{ZM_MESSAGE_ADDRESS} )
     {
         Error( "No message address defined, not sending message" );
         return( 0 );
@@ -1059,22 +1239,22 @@ sub sendMessage
 
     Info( "Creating notification message\n" );
 
-    my $subject = substituteTags( ZM_MESSAGE_SUBJECT, $filter, $event );
+    my $subject = substituteTags( $Config{ZM_MESSAGE_SUBJECT}, $filter, $event );
     return( 0 ) if ( !$subject );
     my @attachments;
-    my $body = substituteTags( ZM_MESSAGE_BODY, $filter, $event, \@attachments );
+    my $body = substituteTags( $Config{ZM_MESSAGE_BODY}, $filter, $event, \@attachments );
     return( 0 ) if ( !$body );
 
     Info( "Sending notification message '$subject'\n" );
 
     eval
     {
-        if ( ZM_NEW_MAIL_MODULES )
+        if ( $Config{ZM_NEW_MAIL_MODULES} )
         {
             ### Create the multipart container
             my $mail = MIME::Lite->new (
-                From => ZM_FROM_EMAIL,
-                To => ZM_MESSAGE_ADDRESS,
+                From => $Config{ZM_FROM_EMAIL},
+                To => $Config{ZM_MESSAGE_ADDRESS},
                 Subject => $subject,
                 Type => "multipart/mixed"
             );
@@ -1094,14 +1274,14 @@ sub sendMessage
                 );
             }
             ### Send the Message
-            MIME::Lite->send( "smtp", ZM_EMAIL_HOST, Timeout=>60 );
+            MIME::Lite->send( "smtp", $Config{ZM_EMAIL_HOST}, Timeout=>60 );
             $mail->send();
-        } 
+        }
         else
         {
             my $mail = MIME::Entity->build(
-                From => ZM_FROM_EMAIL,
-                To => ZM_MESSAGE_ADDRESS,
+                From => $Config{ZM_FROM_EMAIL},
+                To => $Config{ZM_MESSAGE_ADDRESS},
                 Subject => $subject,
                 Type => (($body=~/<html>/)?'text/html':'text/plain'),
                 Data => $body
@@ -1116,7 +1296,9 @@ sub sendMessage
                     Encoding => "base64"
                 );
             }
-            $mail->smtpsend( Host => ZM_EMAIL_HOST, MailFrom => ZM_FROM_EMAIL );
+            $mail->smtpsend( Host => $Config{ZM_EMAIL_HOST},
+                             MailFrom => $Config{ZM_FROM_EMAIL}
+            );
         }
     };
     if ( $@ )
@@ -1129,8 +1311,10 @@ sub sendMessage
         Info( "Notification message sent\n" );
     }
     my $sql = "update Events set Messaged = 1 where Id = ?";
-    my $sth = $dbh->prepare_cached( $sql ) or Fatal( "Can't prepare '$sql': ".$dbh->errstr() );
-    my $res = $sth->execute( $event->{Id} ) or Fatal( "Can't execute '$sql': ".$sth->errstr() );
+    my $sth = $dbh->prepare_cached( $sql )
+        or Fatal( "Can't prepare '$sql': ".$dbh->errstr() );
+    my $res = $sth->execute( $event->{Id} )
+        or Fatal( "Can't execute '$sql': ".$sth->errstr() );
 
     return( 1 );
 }
@@ -1161,8 +1345,10 @@ sub executeCommand
     else
     {
         my $sql = "update Events set Executed = 1 where Id = ?";
-        my $sth = $dbh->prepare_cached( $sql ) or Fatal( "Can't prepare '$sql': ".$dbh->errstr() );
-        my $res = $sth->execute( $event->{Id} ) or Fatal( "Can't execute '$sql': ".$sth->errstr() );
+        my $sth = $dbh->prepare_cached( $sql )
+            or Fatal( "Can't prepare '$sql': ".$dbh->errstr() );
+        my $res = $sth->execute( $event->{Id} )
+            or Fatal( "Can't execute '$sql': ".$sth->errstr() );
     }
     return( 1 );
 }

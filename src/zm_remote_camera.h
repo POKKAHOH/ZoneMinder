@@ -21,8 +21,11 @@
 #define ZM_REMOTE_CAMERA_H
 
 #include "zm_camera.h"
+#include "zm_rtsp_auth.h"
 
 #include <string>
+#include <sys/types.h>
+#include <sys/socket.h>
 #include <netdb.h>
 
 //
@@ -37,11 +40,19 @@ protected:
 	std::string	port;
 	std::string	path;
 	std::string	auth;
+	std::string	username;
+	std::string	password;
 	std::string	auth64;
 
+    // Reworked authentication system
+    // First try without authentication, even if we have a username and password
+    // on receiving a 401 response, select authentication method (basic or digest)
+    // fill required fields and set needAuth
+    // subsequent requests can set the required authentication header.
+    bool mNeedAuth;
+    zm::Authenticator* mAuthenticator;
 protected:
-    struct hostent *hp;
-    struct sockaddr_in sa;
+	struct addrinfo *hp;
 
 public:
 	RemoteCamera( int p_id, const std::string &p_proto, const std::string &p_host, const std::string &p_port, const std::string &p_path, int p_width, int p_height, int p_colours, int p_brightness, int p_contrast, int p_hue, int p_colour, bool p_capture );
@@ -52,6 +63,8 @@ public:
 	const std::string &Port() const { return( port ); }
 	const std::string &Path() const { return( path ); }
 	const std::string &Auth() const { return( auth ); }
+	const std::string &Username() const { return( username ); }
+	const std::string &Password() const { return( password ); }
 
 	virtual void Initialise();
 	virtual void Terminate() = 0;

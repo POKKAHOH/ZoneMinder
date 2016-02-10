@@ -28,8 +28,9 @@
 #include "zm_ffmpeg.h"
 
 //
-// Class representing 'remote' cameras, i.e. those which are
-// accessed over a network connection.
+// Class representing 'rtsp' cameras, i.e. those which are
+// accessed over a network connection using rtsp protocol
+// (Real Time Streaming Protocol)
 //
 class RemoteCameraRtsp : public RemoteCamera
 {
@@ -39,8 +40,11 @@ protected:
 	int rtsp_sd;
 	int rtp_sd;
 	int rtcp_sd;
+        bool rtsp_describe;
 
 	Buffer buffer;
+        Buffer lastSps;
+        Buffer lastPps;
 
     RtspThread::RtspMethod method;
 
@@ -55,7 +59,7 @@ protected:
     AVCodec             *mCodec;
     AVFrame             *mRawFrame; 
     AVFrame             *mFrame;
-    PixelFormat         imagePixFormat;
+    _AVPIXELFORMAT         imagePixFormat;
 #endif // HAVE_LIBAVFORMAT
 
 #if HAVE_LIBSWSCALE
@@ -63,18 +67,19 @@ protected:
 #endif
 
 public:
-	RemoteCameraRtsp( int p_id, const std::string &method, const std::string &host, const std::string &port, const std::string &path, int p_width, int p_height, int p_colours, int p_brightness, int p_contrast, int p_hue, int p_colour, bool p_capture );
+	RemoteCameraRtsp( int p_id, const std::string &method, const std::string &host, const std::string &port, const std::string &path, int p_width, int p_height, bool p_rtsp_describe, int p_colours, int p_brightness, int p_contrast, int p_hue, int p_colour, bool p_capture );
 	~RemoteCameraRtsp();
 
 	void Initialise();
 	void Terminate();
-    int Connect();
-    int Disconnect();
+        int Connect();
+        int Disconnect();
 
 	int PrimeCapture();
 	int PreCapture();
 	int Capture( Image &image );
 	int PostCapture();
+
 };
 
 #endif // ZM_REMOTE_CAMERA_RTSP_H

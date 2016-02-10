@@ -129,10 +129,10 @@ int RtpCtrlThread::recvPacket( const unsigned char *packet, ssize_t packetLen )
                         }
                     }
                     int paddedLen = 4+2+item->len+1; // Add null byte
-                    paddedLen = (((paddedLen-1)/4)+1)*4;
+                    paddedLen = (((paddedLen-1)/4)+1)*4; // Round to nearest multiple of 4
                     Debug( 5, "RTCP PL:%d", paddedLen );
                     sdesPtr += paddedLen;
-                    contentLen -= paddedLen;
+                    contentLen = ( paddedLen <= contentLen ) ? ( contentLen - paddedLen ) : 0;
                 }
             }
             break;
@@ -143,12 +143,22 @@ int RtpCtrlThread::recvPacket( const unsigned char *packet, ssize_t packetLen )
             mStop = true;
             break;
         }
-        case RTCP_RR :
         case RTCP_APP :
+        {
+            // Ignoring as per RFC 3550
+            Debug( 5, "Received RTCP_APP packet, ignoring.");
+            break;
+        }
+        case RTCP_RR :
+        {
+            Error( "Received RTCP_RR packet." );
+            return( -1 );
+        }
         default :
         {
-            Error( "Received unexpected packet type %d, ignoring", pt );
-            return( -1 );
+            // Ignore unknown packet types. Some cameras do this by design.
+            Debug( 5, "Received unexpected packet type %d, ignoring", pt );
+            break;
         }
     }
     consumed = sizeof(uint32_t)*(len+1);
@@ -170,13 +180,13 @@ int RtpCtrlThread::generateRr( const unsigned char *packet, ssize_t packetLen )
 
     mRtpSource.updateRtcpStats();
 
-    Debug( 5, "Ssrc = %d", mRtspThread.getSsrc() );
+    Debug( 5, "Ssrc = %d", mRtspThread.getSsrc()+1 );
     Debug( 5, "Ssrc_1 = %d", mRtpSource.getSsrc() );
     Debug( 5, "Last Seq = %d", mRtpSource.getMaxSeq() );
     Debug( 5, "Jitter = %d", mRtpSource.getJitter() );
     Debug( 5, "Last SR = %d", mRtpSource.getLastSrTimestamp() );
 
-    rtcpPacket->body.rr.ssrcN = htonl(mRtspThread.getSsrc());
+    rtcpPacket->body.rr.ssrcN = htonl(mRtspThread.getSsrc()+1);
     rtcpPacket->body.rr.rr[0].ssrcN = htonl(mRtpSource.getSsrc());
     rtcpPacket->body.rr.rr[0].lost = mRtpSource.getLostPackets();
     rtcpPacket->body.rr.rr[0].fraction = mRtpSource.getLostFraction();
@@ -203,7 +213,7 @@ int RtpCtrlThread::generateSdes( const unsigned char *packet, ssize_t packetLen 
     rtcpPacket->header.count = 1;
     rtcpPacket->header.lenN = htons(wordLen-1);
 
-    rtcpPacket->body.sdes.srcN = htonl(mRtpSource.getSsrc());
+    rtcpPacket->body.sdes.srcN = htonl(mRtpSource.getSsrc()+1);
     rtcpPacket->body.sdes.item[0].type = RTCP_SDES_CNAME;
     rtcpPacket->body.sdes.item[0].len = cname.size();
     memcpy( rtcpPacket->body.sdes.item[0].data, cname.data(), cname.size() );
@@ -288,19 +298,42 @@ int RtpCtrlThread::run()
         sendReports = true;
     }
 
+	// The only reason I can think of why we would have a timeout period is so that we can regularly send RR packets.
+	// Why 10 seconds? If anything I think this should be whatever timeout value was given in the DESCRIBE response
     Select select( 10 );
     select.addReader( &rtpCtrlServer );
 
     unsigned char buffer[ZM_NETWORK_BUFSIZ];
-    while ( !mStop && select.wait() >= 0 )
-    {
-        if ( mStop )
-            break;
+
+	time_t	last_receive = time(NULL);
+	bool	timeout = false; // used as a flag that we had a timeout, and then sent an RR to see if we wake back up. Real timeout will happen when this is true.
+
+    while ( !mStop && select.wait() >= 0 ) {
+
+		time_t now = time(NULL);
         Select::CommsList readable = select.getReadable();
         if ( readable.size() == 0 )
         {
-            Error( "RTCP timed out" );
-            break;
+			if ( ! timeout ) {
+				// With this code here, we will send an SDES and RR packet every 10 seconds
+				ssize_t nBytes;
+				unsigned char *bufferPtr = buffer;
+				bufferPtr += generateRr( bufferPtr, sizeof(buffer)-(bufferPtr-buffer) );
+				bufferPtr += generateSdes( bufferPtr, sizeof(buffer)-(bufferPtr-buffer) );
+				Debug( 3, "Preventing timeout by sending %zd bytes on sd %d. Time since last receive: %d", bufferPtr-buffer, rtpCtrlServer.getWriteDesc(), ( now-last_receive) );
+				if ( (nBytes = rtpCtrlServer.send( buffer, bufferPtr-buffer )) < 0 )
+					Error( "Unable to send: %s", strerror( errno ) );
+				timeout = true;
+				continue;
+			} else {
+				//Error( "RTCP timed out" );
+				Debug(1, "RTCP timed out. Time since last receive: %d", ( now-last_receive) );
+				continue;
+				//break;
+			}
+		} else {
+			timeout = false;
+			last_receive = time(NULL);
         }
         for ( Select::CommsList::iterator iter = readable.begin(); iter != readable.end(); iter++ )
         {
@@ -318,14 +351,13 @@ int RtpCtrlThread::run()
                         unsigned char *bufferPtr = buffer;
                         bufferPtr += generateRr( bufferPtr, sizeof(buffer)-(bufferPtr-buffer) );
                         bufferPtr += generateSdes( bufferPtr, sizeof(buffer)-(bufferPtr-buffer) );
-                        Debug( 4, "Sending %zd bytes on sd %d", bufferPtr-buffer, rtpCtrlServer.getWriteDesc() );
+                        Debug( 3, "Sending %zd bytes on sd %d", bufferPtr-buffer, rtpCtrlServer.getWriteDesc() );
                         if ( (nBytes = rtpCtrlServer.send( buffer, bufferPtr-buffer )) < 0 )
                             Error( "Unable to send: %s", strerror( errno ) );
                         //Debug( 4, "Sent %d bytes on sd %d", nBytes, rtpCtrlServer.getWriteDesc() );
                     }
-                }
-                else
-                {
+                } else {
+					// Here is another case of not receiving some data causing us to terminate... why?  Sometimes there are pauses in the interwebs.
                     mStop = true;
                     break;
                 }

@@ -18,6 +18,7 @@
 // 
 #include "zm.h"
 #include "zm_font.h"
+#include "zm_bigfont.h"
 #include "zm_image.h"
 #include "zm_utils.h"
 #include "zm_rgb.h"
@@ -104,13 +105,13 @@ Image::Image( int p_width, int p_height, int p_colours, int p_subpixelorder, uin
     pixels = width*height;
     colours = p_colours;
     subpixelorder = p_subpixelorder;
-    size = (width*height)*colours;
+    size = pixels*colours;
     buffer = 0;
     holdbuffer = 0;
     if ( p_buffer )
     {
-	allocation = size;
-	buffertype = ZM_BUFTYPE_DONTFREE;
+		allocation = size;
+		buffertype = ZM_BUFTYPE_DONTFREE;
         buffer = p_buffer;
     }
     else
@@ -129,10 +130,10 @@ Image::Image( const Image &p_image )
     pixels = p_image.pixels;
     colours = p_image.colours;
     subpixelorder = p_image.subpixelorder;
-    size = allocation = p_image.size;
+    size = p_image.size; // allocation is set in AllocImgBuffer
     buffer = 0;
     holdbuffer = 0;
-    AllocImgBuffer(allocation);
+    AllocImgBuffer(size);
     (*fptr_imgbufcpy)(buffer, p_image.buffer, size);
     strncpy( text, p_image.text, sizeof(text) );
 }
@@ -140,6 +141,22 @@ Image::Image( const Image &p_image )
 Image::~Image()
 {
 	DumpImgBuffer();
+	if ( initialised )
+	{
+		delete[] y_table;
+		delete[] uv_table;
+		delete[] r_v_table;
+		delete[] g_v_table;
+		delete[] g_u_table;
+		delete[] b_u_table;
+		initialised = false;
+	}
+	if ( jpg_dcinfo )
+	{
+		jpeg_destroy_decompress( jpg_dcinfo );
+		delete jpg_dcinfo;
+		jpg_dcinfo = 0;
+	}
 }
 
 void Image::Initialise()
@@ -289,7 +306,7 @@ void Image::Initialise()
 	initialised = true;
 }
 
-/* Requests a writeable buffer to the image. This is safer than buffer() because this way we can gurantee that a buffer of required size exists */
+/* Requests a writeable buffer to the image. This is safer than buffer() because this way we can guarantee that a buffer of required size exists */
 uint8_t* Image::WriteBuffer(const unsigned int p_width, const unsigned int p_height, const unsigned int p_colours, const unsigned int p_subpixelorder) {
 	unsigned int newsize;
   
@@ -315,7 +332,7 @@ uint8_t* Image::WriteBuffer(const unsigned int p_width, const unsigned int p_hei
 					return NULL;
 				} else {
 					/* Replace buffer with a bigger one */
-					DumpImgBuffer();
+					//DumpImgBuffer(); // Done in AllocImgBuffer too
 					AllocImgBuffer(newsize);
 				}
 			}
@@ -339,24 +356,26 @@ void Image::AssignDirect( const unsigned int p_width, const unsigned int p_heigh
 		Error("Attempt to directly assign buffer from a NULL pointer");
 		return;
 	}
-	
-	if(buffer_size < (unsigned int)((p_width*p_height)*p_colours)) {
-		Error("Attempt to directly assign buffer from an undersized buffer of size: %zu",buffer_size);
-		return;
-	}
-	
+
 	if(!p_height || !p_width) {
 		Error("Attempt to directly assign buffer with invalid width or height: %d %d",p_width,p_height);
 		return;
 	}
-	
+
 	if(p_colours != ZM_COLOUR_GRAY8 && p_colours != ZM_COLOUR_RGB24 && p_colours != ZM_COLOUR_RGB32) {
 		Error("Attempt to directly assign buffer with unexpected colours per pixel: %d",p_colours);
 		return;
 	}
+
+	unsigned int new_buffer_size = ((p_width*p_height)*p_colours);
+	
+	if(buffer_size < new_buffer_size) {
+		Error("Attempt to directly assign buffer from an undersized buffer of size: %zu, needed %dx%d*%d colours = %zu",buffer_size, p_width, p_height, p_colours, new_buffer_size );
+		return;
+	}
 	
 	if(holdbuffer && buffer) {
-		if((unsigned int)((p_height*p_width)*p_colours) > allocation) {
+		if(new_buffer_size > allocation) {
 			Error("Held buffer is undersized for assigned buffer");
 			return;
 		} else {
@@ -365,7 +384,7 @@ void Image::AssignDirect( const unsigned int p_width, const unsigned int p_heigh
 			colours = p_colours;
 			subpixelorder = p_subpixelorder;
 			pixels = height*width;
-			size = pixels*colours;
+			size = new_buffer_size; // was pixels*colours, but we already calculated it above as new_buffer_size
 			
 			/* Copy into the held buffer */
 			if(new_buffer != buffer)
@@ -383,7 +402,7 @@ void Image::AssignDirect( const unsigned int p_width, const unsigned int p_heigh
 		colours = p_colours;
 		subpixelorder = p_subpixelorder;
 		pixels = height*width;
-		size = pixels*colours;
+		size = new_buffer_size; // was pixels*colours, but we already calculated it above as new_buffer_size
 	
 		allocation = buffer_size;
 		buffertype = p_buffertype;
@@ -464,7 +483,7 @@ void Image::Assign( const Image &image ) {
 			}
 		} else {
 			if(new_size > allocation || !buffer) { 
-				DumpImgBuffer();
+				// DumpImgBuffer(); This is also done in AllocImgBuffer
 				AllocImgBuffer(new_size);
 			}
 		}
@@ -769,15 +788,30 @@ bool Image::ReadJpeg( const char *filename, unsigned int p_colours, unsigned int
 	return( true );
 }
 
-bool Image::WriteJpeg( const char *filename, int quality_override ) const
+// Multiple calling formats to permit inclusion (or not) of both quality_override and timestamp (exif), with suitable defaults.
+// Note quality=zero means default
+
+bool Image::WriteJpeg( const char *filename, int quality_override) const
+{
+    return Image::WriteJpeg(filename, quality_override, (timeval){0,0});
+}
+bool Image::WriteJpeg( const char *filename) const
+{
+    return Image::WriteJpeg(filename, 0, (timeval){0,0});
+}
+bool Image::WriteJpeg( const char *filename, struct timeval timestamp ) const
+{
+    return Image::WriteJpeg(filename,0,timestamp);
+}
+
+bool Image::WriteJpeg( const char *filename, int quality_override, struct timeval timestamp  ) const
 {
 	if ( config.colour_jpeg_files && colours == ZM_COLOUR_GRAY8 )
 	{
 		Image temp_image( *this );
 		temp_image.Colourise( ZM_COLOUR_RGB24, ZM_SUBPIX_ORDER_RGB );
-		return( temp_image.WriteJpeg( filename, quality_override ) );
+		return( temp_image.WriteJpeg( filename, quality_override, timestamp) );
 	}
-
 	int quality = quality_override?quality_override:config.jpeg_file_quality;
 
 	struct jpeg_compress_struct *cinfo = jpg_ccinfo[quality];
@@ -860,7 +894,7 @@ bool Image::WriteJpeg( const char *filename, int quality_override ) const
 	}
 	
 	jpeg_set_defaults( cinfo );
-	jpeg_set_quality( cinfo, quality, false );
+	jpeg_set_quality( cinfo, quality, FALSE );
 	cinfo->dct_method = JDCT_FASTEST;
 
 	jpeg_start_compress( cinfo, TRUE );
@@ -868,6 +902,30 @@ bool Image::WriteJpeg( const char *filename, int quality_override ) const
 	{
 		jpeg_write_marker( cinfo, JPEG_COM, (const JOCTET *)text, strlen(text) );
 	}
+        // If we have a non-zero time (meaning a parameter was passed in), then form a simple exif segment with that time as DateTimeOriginal and SubsecTimeOriginal
+        // No timestamp just leave off the exif section.
+        if(timestamp.tv_sec)
+        {
+            #define EXIFTIMES_MS_OFFSET 0x36   // three decimal digits for milliseconds
+            #define EXIFTIMES_MS_LEN    0x03
+            #define EXIFTIMES_OFFSET    0x3E   // 19 characters format '2015:07:21 13:14:45' not including quotes
+            #define EXIFTIMES_LEN       0x13   // = 19
+            #define EXIF_CODE           0xE1
+
+            char timebuf[64], msbuf[64];
+            strftime(timebuf, sizeof timebuf, "%Y:%m:%d %H:%M:%S", localtime(&(timestamp.tv_sec)));
+            snprintf(msbuf, sizeof msbuf, "%06d",(int)(timestamp.tv_usec));  // we only use milliseconds because that's all defined in exif, but this is the whole microseconds because we have it
+            unsigned char exiftimes[82] = {
+                 0x45, 0x78, 0x69, 0x66, 0x00, 0x00, 0x49, 0x49, 0x2A, 0x00, 0x08, 0x00, 0x00, 0x00, 0x01, 0x00,
+                 0x69, 0x87, 0x04, 0x00, 0x01, 0x00, 0x00, 0x00, 0x1A, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                 0x02, 0x00, 0x03, 0x90, 0x02, 0x00, 0x14, 0x00, 0x00, 0x00, 0x38, 0x00, 0x00, 0x00, 0x91, 0x92,
+                 0x02, 0x00, 0x04, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff,
+                 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+                 0xff, 0x00 };
+            memcpy(&exiftimes[EXIFTIMES_OFFSET],    timebuf,EXIFTIMES_LEN);
+            memcpy(&exiftimes[EXIFTIMES_MS_OFFSET], msbuf  ,EXIFTIMES_MS_LEN);
+            jpeg_write_marker (cinfo, EXIF_CODE, (const JOCTET *)exiftimes, sizeof(exiftimes) );
+        }
 
 	JSAMPROW row_pointer;	/* pointer to a single row */
 	int row_stride = cinfo->image_width * colours; /* physical row width in buffer */
@@ -1093,7 +1151,7 @@ bool Image::EncodeJpeg( JOCTET *outbuffer, int *outbuffer_size, int quality_over
 	}
 	
 	jpeg_set_defaults( cinfo );
-	jpeg_set_quality( cinfo, quality, false );
+	jpeg_set_quality( cinfo, quality, FALSE );
 	cinfo->dct_method = JDCT_FASTEST;
 
 	jpeg_start_compress( cinfo, TRUE );
@@ -1562,7 +1620,11 @@ Image *Image::Highlight( unsigned int n_images, Image *images[], const Rgb thres
 			{
 				uint8_t *psrc = images[j]->buffer+c;
 
+#ifndef SOLARIS
 				if ( (unsigned)abs((*psrc)-RGB_VAL(ref_colour,c)) >= RGB_VAL(threshold,c) )
+#else
+				if ( (unsigned)std::abs((*psrc)-RGB_VAL(ref_colour,c)) >= RGB_VAL(threshold,c) )
+#endif
 				{
 					count++;
 				}
@@ -1575,7 +1637,7 @@ Image *Image::Highlight( unsigned int n_images, Image *images[], const Rgb thres
 	return( result );
 }
 
-/* New function to allow buffer re-using instead of allocationg memory for the delta image everytime */
+/* New function to allow buffer re-using instead of allocationg memory for the delta image every time */
 void Image::Delta( const Image &image, Image* targetimage) const
 {
 #ifdef ZM_IMAGE_PROFILING
@@ -1674,7 +1736,60 @@ const Coord Image::centreCoord( const char *text ) const
 }
 
 /* RGB32 compatible: complete */
-void Image::Annotate( const char *p_text, const Coord &coord, const Rgb fg_colour, const Rgb bg_colour )
+void Image::MaskPrivacy( const unsigned char *p_bitmask, const Rgb pixel_colour )
+{
+    const uint8_t pixel_r_col = RED_VAL_RGBA(pixel_colour);
+    const uint8_t pixel_g_col = GREEN_VAL_RGBA(pixel_colour);
+    const uint8_t pixel_b_col = BLUE_VAL_RGBA(pixel_colour);
+    const uint8_t pixel_bw_col = pixel_colour & 0xff;
+    const Rgb pixel_rgb_col = rgb_convert(pixel_colour,subpixelorder);
+
+    unsigned char *ptr = &buffer[0];
+    unsigned int i = 0;
+
+    for ( unsigned int y = 0; y < height; y++ )
+    {
+        if ( colours == ZM_COLOUR_GRAY8 )
+        {
+            for ( unsigned int x = 0; x < width; x++, ptr++ )
+            {
+                if ( p_bitmask[i] )
+                    *ptr = pixel_bw_col;
+                i++;
+            }
+        }
+        else if ( colours == ZM_COLOUR_RGB24 )
+        {
+            for ( unsigned int x = 0; x < width; x++, ptr += colours )
+            {
+                if ( p_bitmask[i] )
+                {
+                    RED_PTR_RGBA(ptr) = pixel_r_col;
+                    GREEN_PTR_RGBA(ptr) = pixel_g_col;
+                    BLUE_PTR_RGBA(ptr) = pixel_b_col;
+                }
+                i++;
+            }
+        }
+        else if ( colours == ZM_COLOUR_RGB32 )
+	{
+            for ( unsigned int x = 0; x < width; x++, ptr += colours )
+            {
+                Rgb *temp_ptr = (Rgb*)ptr;
+                if ( p_bitmask[i] )
+                    *temp_ptr = pixel_rgb_col;
+                i++;
+            }
+	} else {
+		Panic("MaskPrivacy called with unexpected colours: %d", colours);
+		return;
+	}
+
+    }
+}
+
+/* RGB32 compatible: complete */
+void Image::Annotate( const char *p_text, const Coord &coord, const unsigned int size, const Rgb fg_colour, const Rgb bg_colour )
 {
 	strncpy( text, p_text, sizeof(text) );
 
@@ -1698,18 +1813,22 @@ void Image::Annotate( const char *p_text, const Coord &coord, const Rgb fg_colou
     const Rgb bg_rgb_col = rgb_convert(bg_colour,subpixelorder);
     const bool bg_trans = (bg_colour == RGB_TRANSPARENT);
 
+    int zm_text_bitmask = 0x80;
+    if (size == 2)
+        zm_text_bitmask = 0x8000;
+
     while ( (index < text_len) && (line_len = strcspn( line, "\n" )) )
     {
 
-        unsigned int line_width = line_len * CHAR_WIDTH;
+        unsigned int line_width = line_len * CHAR_WIDTH * size;
 
         unsigned int lo_line_x = coord.X();
-        unsigned int lo_line_y = coord.Y() + (line_no * LINE_HEIGHT);
+        unsigned int lo_line_y = coord.Y() + (line_no * LINE_HEIGHT * size);
 
         unsigned int min_line_x = 0;
         unsigned int max_line_x = width - line_width;
         unsigned  int min_line_y = 0;
-        unsigned int max_line_y = height - LINE_HEIGHT;
+        unsigned int max_line_y = height - (LINE_HEIGHT * size);
 
         if ( lo_line_x > max_line_x )
             lo_line_x = max_line_x;
@@ -1721,7 +1840,7 @@ void Image::Annotate( const char *p_text, const Coord &coord, const Rgb fg_colou
             lo_line_y = min_line_y;
 
         unsigned int hi_line_x = lo_line_x + line_width;
-        unsigned int hi_line_y = lo_line_y + LINE_HEIGHT;
+        unsigned int hi_line_y = lo_line_y + (LINE_HEIGHT * size);
 
         // Clip anything that runs off the right of the screen
         if ( hi_line_x > width )
@@ -1732,15 +1851,19 @@ void Image::Annotate( const char *p_text, const Coord &coord, const Rgb fg_colou
         if ( colours == ZM_COLOUR_GRAY8 )
         {
             unsigned char *ptr = &buffer[(lo_line_y*width)+lo_line_x];
-            for ( unsigned int y = lo_line_y, r = 0; y < hi_line_y && r < CHAR_HEIGHT; y++, r++, ptr += width )
+            for ( unsigned int y = lo_line_y, r = 0; y < hi_line_y && r < (CHAR_HEIGHT * size); y++, r++, ptr += width )
             {
                 unsigned char *temp_ptr = ptr;
                 for ( unsigned int x = lo_line_x, c = 0; x < hi_line_x && c < line_len; c++ )
                 {
-                    int f = fontdata[(line[c] * CHAR_HEIGHT) + r];
-                    for ( unsigned int i = 0; i < CHAR_WIDTH && x < hi_line_x; i++, x++, temp_ptr++ )
+                    int f;
+                    if (size == 2)
+                        f = bigfontdata[(line[c] * CHAR_HEIGHT * size) + r];
+                    else
+                        f = fontdata[(line[c] * CHAR_HEIGHT) + r];
+                    for ( unsigned int i = 0; i < (CHAR_WIDTH * size) && x < hi_line_x; i++, x++, temp_ptr++ )
                     {
-                        if ( f & (0x80 >> i) )
+                        if ( f & (zm_text_bitmask >> i) )
                         {
                             if ( !fg_trans )
                                 *temp_ptr = fg_bw_col;
@@ -1758,15 +1881,19 @@ void Image::Annotate( const char *p_text, const Coord &coord, const Rgb fg_colou
             unsigned int wc = width * colours;
 
             unsigned char *ptr = &buffer[((lo_line_y*width)+lo_line_x)*colours];
-            for ( unsigned int y = lo_line_y, r = 0; y < hi_line_y && r < CHAR_HEIGHT; y++, r++, ptr += wc )
+            for ( unsigned int y = lo_line_y, r = 0; y < hi_line_y && r < (CHAR_HEIGHT * size); y++, r++, ptr += wc )
             {
                 unsigned char *temp_ptr = ptr;
                 for ( unsigned int x = lo_line_x, c = 0; x < hi_line_x && c < line_len; c++ )
                 {
-                    int f = fontdata[(line[c] * CHAR_HEIGHT) + r];
-                    for ( unsigned int i = 0; i < CHAR_WIDTH && x < hi_line_x; i++, x++, temp_ptr += colours )
+                    int f;
+                    if (size == 2)
+                        f = bigfontdata[(line[c] * CHAR_HEIGHT * size) + r];
+                    else
+                        f = fontdata[(line[c] * CHAR_HEIGHT) + r];
+                    for ( unsigned int i = 0; i < (CHAR_WIDTH * size) && x < hi_line_x; i++, x++, temp_ptr += colours )
                     {
-                        if ( f & (0x80 >> i) )
+                        if ( f & (zm_text_bitmask >> i) )
                         {
                             if ( !fg_trans )
                             {
@@ -1790,15 +1917,19 @@ void Image::Annotate( const char *p_text, const Coord &coord, const Rgb fg_colou
             unsigned int wc = width * colours;
 
             uint8_t *ptr = &buffer[((lo_line_y*width)+lo_line_x)<<2];
-            for ( unsigned int y = lo_line_y, r = 0; y < hi_line_y && r < CHAR_HEIGHT; y++, r++, ptr += wc )
+            for ( unsigned int y = lo_line_y, r = 0; y < hi_line_y && r < (CHAR_HEIGHT * size); y++, r++, ptr += wc )
             {
                 Rgb* temp_ptr = (Rgb*)ptr;
                 for ( unsigned int x = lo_line_x, c = 0; x < hi_line_x && c < line_len; c++ )
                 {
-                    int f = fontdata[(line[c] * CHAR_HEIGHT) + r];
-                    for ( unsigned int i = 0; i < CHAR_WIDTH && x < hi_line_x; i++, x++, temp_ptr++ )
+                    int f;
+                    if (size == 2)
+                        f = bigfontdata[(line[c] * CHAR_HEIGHT * size) + r];
+                    else
+                        f = fontdata[(line[c] * CHAR_HEIGHT) + r];
+                    for ( unsigned int i = 0; i < (CHAR_WIDTH * size) && x < hi_line_x; i++, x++, temp_ptr++ )
                     {
-                        if ( f & (0x80 >> i) )
+                        if ( f & (zm_text_bitmask >> i) )
                         {
                             if ( !fg_trans )
                             {
@@ -1814,7 +1945,7 @@ void Image::Annotate( const char *p_text, const Coord &coord, const Rgb fg_colou
             } 
 	
 	} else {
-		Panic("Annontate called with unexpected colours: %d",colours);
+		Panic("Annotate called with unexpected colours: %d",colours);
 		return;
 	}
 	
@@ -1828,7 +1959,7 @@ void Image::Annotate( const char *p_text, const Coord &coord, const Rgb fg_colou
     }
 }
 
-void Image::Timestamp( const char *label, const time_t when, const Coord &coord )
+void Image::Timestamp( const char *label, const time_t when, const Coord &coord, const int size )
 {
 	char time_text[64];
 	strftime( time_text, sizeof(time_text), "%y/%m/%d %H:%M:%S", localtime( &when ) );
@@ -1836,11 +1967,11 @@ void Image::Timestamp( const char *label, const time_t when, const Coord &coord 
 	if ( label )
 	{
 		snprintf( text, sizeof(text), "%s - %s", label, time_text );
-		Annotate( text, coord );
+		Annotate( text, coord, size );
 	}
 	else
 	{
-		Annotate( time_text, coord );
+		Annotate( time_text, coord, size );
 	}
 }
 
@@ -2088,10 +2219,10 @@ void Image::Outline( Rgb colour, const Polygon &polygon )
 
 		double grad;
 
-		Debug( 9, "dx: %.2lf, dy: %.2lf", dx, dy );
+		//Debug( 9, "dx: %.2lf, dy: %.2lf", dx, dy );
 		if ( fabs(dx) <= fabs(dy) )
 		{
-			Debug( 9, "dx <= dy" );
+			//Debug( 9, "dx <= dy" );
 			if ( y1 != y2 )
 				grad = dx/dy;
 			else
@@ -2102,10 +2233,10 @@ void Image::Outline( Rgb colour, const Polygon &polygon )
 			grad *= yinc;
 			if ( colours == ZM_COLOUR_GRAY8 )
 			{
-				Debug( 9, "x1:%d, x2:%d, y1:%d, y2:%d, gr:%.2f", x1, x2, y1, y2, grad );
+				//Debug( 9, "x1:%d, x2:%d, y1:%d, y2:%d, gr:%.2f", x1, x2, y1, y2, grad );
 				for ( x = x1, y = y1; y != y2; y += yinc, x += grad )
 				{
-					Debug( 9, "x:%.2f, y:%d", x, y );
+					//Debug( 9, "x:%.2f, y:%d", x, y );
 					buffer[(y*width)+int(round(x))] = colour;
 				}
 			}
@@ -2129,22 +2260,22 @@ void Image::Outline( Rgb colour, const Polygon &polygon )
 		}
 		else
 		{
-			Debug( 9, "dx > dy" );
+			//Debug( 9, "dx > dy" );
 			if ( x1 != x2 )
 				grad = dy/dx;
 			else
 				grad = height;
-			Debug( 9, "grad: %.2lf", grad );
+			//Debug( 9, "grad: %.2lf", grad );
 
 			double y;
 			int x, xinc = (x1<x2)?1:-1;
 			grad *= xinc;
 			if ( colours == ZM_COLOUR_GRAY8 )
 			{
-				Debug( 9, "x1:%d, x2:%d, y1:%d, y2:%d, gr:%.2lf", x1, x2, y1, y2, grad );
+				//Debug( 9, "x1:%d, x2:%d, y1:%d, y2:%d, gr:%.2lf", x1, x2, y1, y2, grad );
 				for ( y = y1, x = x1; x != x2; x += xinc, y += grad )
 				{
-					Debug( 9, "x:%d, y:%.2f", x, y );
+					//Debug( 9, "x:%d, y:%.2f", x, y );
 					buffer[(int(round(y))*width)+x] = colour;
 				}
 			}
@@ -2194,7 +2325,7 @@ void Image::Fill( Rgb colour, int density, const Polygon &polygon )
 		int y1 = p1.Y();
 		int y2 = p2.Y();
 
-		Debug( 9, "x1:%d,y1:%d x2:%d,y2:%d", x1, y1, x2, y2 );
+		//Debug( 9, "x1:%d,y1:%d x2:%d,y2:%d", x1, y1, x2, y2 );
 		if ( y1 == y2 )
 			continue;
 
@@ -2352,10 +2483,10 @@ void Image::Rotate( int angle )
 			if ( colours == ZM_COLOUR_GRAY8 )
 			{
 				unsigned char *d_ptr;
-				for ( unsigned int i = new_width-1; i >= 0; i-- )
+				for ( unsigned int i = new_width; i > 0; i-- )
 				{
-					d_ptr = rotate_buffer+i;
-					for ( unsigned int j = new_height-1; j >= 0; j-- )
+					d_ptr = rotate_buffer+(i-1);
+					for ( unsigned int j = new_height; j > 0; j-- )
 					{
 						*d_ptr = *s_ptr++;
 						d_ptr += line_bytes;
@@ -2366,10 +2497,10 @@ void Image::Rotate( int angle )
 			{
 				Rgb* s_rptr = (Rgb*)s_ptr;
 				Rgb* d_rptr;
-				for ( unsigned int i = new_width-1; i >= 0; i-- )
+				for ( unsigned int i = new_width; i > 0; i-- )
 				{
-					d_rptr = (Rgb*)(rotate_buffer+(i<<2));
-					for ( unsigned int j = new_height-1; j >= 0; j-- )
+					d_rptr = (Rgb*)(rotate_buffer+((i-1)<<2));
+					for ( unsigned int j = new_height; j > 0; j-- )
 					{
 						*d_rptr = *s_rptr++;
 						d_rptr += new_width;
@@ -2379,10 +2510,10 @@ void Image::Rotate( int angle )
 			else /* Assume RGB24 */
 			{
 				unsigned char *d_ptr;
-				for ( unsigned int i = new_width-1; i >= 0; i-- )
+				for ( unsigned int i = new_width; i > 0; i-- )
 				{
-					d_ptr = rotate_buffer+(3*i);
-					for ( unsigned int j = new_height-1; j >= 0; j-- )
+					d_ptr = rotate_buffer+((i-1)*3);
+					for ( unsigned int j = new_height; j > 0; j-- )
 					{
 						*d_ptr = *s_ptr++;
 						*(d_ptr+1) = *s_ptr++;
@@ -2439,10 +2570,10 @@ void Image::Rotate( int angle )
 			if ( colours == ZM_COLOUR_GRAY8 )
 			{
 				unsigned char *d_ptr;
-				for ( unsigned int i = new_width-1; i >= 0; i-- )
+				for ( unsigned int i = new_width; i > 0; i-- )
 				{
-					d_ptr = rotate_buffer+i;
-					for ( unsigned int j = new_height-1; j >= 0; j-- )
+					d_ptr = rotate_buffer+(i-1);
+					for ( unsigned int j = new_height; j > 0; j-- )
 					{
 						s_ptr--;
 						*d_ptr = *s_ptr;
@@ -2454,10 +2585,10 @@ void Image::Rotate( int angle )
 			{
 				Rgb* s_rptr = (Rgb*)s_ptr;
 				Rgb* d_rptr;
-				for ( int i = new_width-1; i >= 0; i-- )
+				for ( unsigned int i = new_width; i > 0; i-- )
 				{
-					d_rptr = (Rgb*)(rotate_buffer+(i<<2));
-					for ( int j = new_height-1; j >= 0; j-- )
+					d_rptr = (Rgb*)(rotate_buffer+((i-1)<<2));
+					for ( unsigned int j = new_height; j > 0; j-- )
 					{
 						s_rptr--;
 						*d_rptr = *s_rptr;
@@ -2468,10 +2599,10 @@ void Image::Rotate( int angle )
 			else /* Assume RGB24 */
 			{
 				unsigned char *d_ptr;
-				for ( unsigned int i = new_width-1; i >= 0; i-- )
+				for ( unsigned int i = new_width; i > 0; i-- )
 				{
-					d_ptr = rotate_buffer+(3*i);
-					for ( unsigned int j = new_height-1; j >= 0; j-- )
+					d_ptr = rotate_buffer+((i-1)*3);
+					for ( unsigned int j = new_height; j > 0; j-- )
 					{
 						*(d_ptr+2) = *(--s_ptr);
 						*(d_ptr+1) = *(--s_ptr);
@@ -2577,7 +2708,7 @@ void Image::Scale( unsigned int factor )
 	unsigned int new_width = (width*factor)/ZM_SCALE_BASE;
 	unsigned int new_height = (height*factor)/ZM_SCALE_BASE;
 	
-	size_t scale_buffer_size = new_width * new_height * colours;
+	size_t scale_buffer_size = (new_width+1) * (new_height+1) * colours;
 	
 	uint8_t* scale_buffer = AllocBuffer(scale_buffer_size);
 	
@@ -2988,7 +3119,10 @@ void Image::Deinterlace_4Field(const Image* next_image, unsigned int threshold)
 /************************************************* BLEND FUNCTIONS *************************************************/
 
 
-__attribute__((noinline,__target__("sse2"))) void sse2_fastblend(const uint8_t* col1, const uint8_t* col2, uint8_t* result, unsigned long count, double blendpercent) {
+#if defined(__i386__) || defined(__x86_64__)
+__attribute__((noinline,__target__("sse2")))
+#endif
+void sse2_fastblend(const uint8_t* col1, const uint8_t* col2, uint8_t* result, unsigned long count, double blendpercent) {
 #if ((defined(__i386__) || defined(__x86_64__) || defined(ZM_KEEP_SSE)) && !defined(ZM_STRIP_SSE))  
 	static uint32_t divider = 0;
 	static uint32_t clearmask = 0;
@@ -3000,23 +3134,23 @@ __attribute__((noinline,__target__("sse2"))) void sse2_fastblend(const uint8_t* 
 			// 1.5625% blending
 			divider = 6;
 			clearmask = 0x03030303;
-		} else if(blendpercent >= 2.34375 && blendpercent < 4.6875) {
+		} else if(blendpercent < 4.6875) {
 			// 3.125% blending
 			divider = 5;
 			clearmask = 0x07070707;
-		} else if(blendpercent >= 4.6875 && blendpercent < 9.375) {
+		} else if(blendpercent < 9.375) {
 			// 6.25% blending
 			divider = 4;
 			clearmask = 0x0F0F0F0F;
-		} else if(blendpercent >= 9.375 && blendpercent < 18.75) {
+		} else if(blendpercent < 18.75) {
 			// 12.5% blending
 			divider = 3;
 			clearmask = 0x1F1F1F1F;
-		} else if(blendpercent >= 18.75 && blendpercent < 37.5) {
+		} else if(blendpercent < 37.5) {
 			// 25% blending
 			divider = 2;
 			clearmask = 0x3F3F3F3F;
-		} else if(blendpercent >= 37.5) {
+		} else {
 			// 50% blending
 			divider = 1;
 			clearmask = 0x7F7F7F7F;
@@ -3063,19 +3197,19 @@ __attribute__((noinline)) void std_fastblend(const uint8_t* col1, const uint8_t*
 		if(blendpercent < 2.34375) {
 			// 1.5625% blending
 			divider = 6;
-		} else if(blendpercent >= 2.34375 && blendpercent < 4.6875) {
+		} else if(blendpercent < 4.6875) {
 			// 3.125% blending
 			divider = 5;
-		} else if(blendpercent >= 4.6875 && blendpercent < 9.375) {
+		} else if(blendpercent < 9.375) {
 			// 6.25% blending
 			divider = 4;
-		} else if(blendpercent >= 9.375 && blendpercent < 18.75) {
+		} else if(blendpercent < 18.75) {
 			// 12.5% blending
 			divider = 3;
-		} else if(blendpercent >= 18.75 && blendpercent < 37.5) {
+		} else if(blendpercent < 37.5) {
 			// 25% blending
 			divider = 2;
-		} else if(blendpercent >= 37.5) {
+		} else {
 			// 50% blending
 			divider = 1;
 		}
@@ -3330,7 +3464,10 @@ __attribute__((noinline)) void std_delta8_abgr(const uint8_t* col1, const uint8_
 }
 
 /* Grayscale SSE2 */
-__attribute__((noinline,__target__("sse2"))) void sse2_delta8_gray8(const uint8_t* col1, const uint8_t* col2, uint8_t* result, unsigned long count) {
+#if defined(__i386__) || defined(__x86_64__)
+__attribute__((noinline,__target__("sse2")))
+#endif
+void sse2_delta8_gray8(const uint8_t* col1, const uint8_t* col2, uint8_t* result, unsigned long count) {
 #if ((defined(__i386__) || defined(__x86_64__) || defined(ZM_KEEP_SSE)) && !defined(ZM_STRIP_SSE))  
 
 	__asm__ __volatile__ (
@@ -3358,7 +3495,10 @@ __attribute__((noinline,__target__("sse2"))) void sse2_delta8_gray8(const uint8_
 }
 
 /* RGB32: RGBA SSE2 */
-__attribute__((noinline,__target__("sse2"))) void sse2_delta8_rgba(const uint8_t* col1, const uint8_t* col2, uint8_t* result, unsigned long count) {
+#if defined(__i386__) || defined(__x86_64__)
+__attribute__((noinline,__target__("sse2")))
+#endif
+void sse2_delta8_rgba(const uint8_t* col1, const uint8_t* col2, uint8_t* result, unsigned long count) {
 #if ((defined(__i386__) || defined(__x86_64__) || defined(ZM_KEEP_SSE)) && !defined(ZM_STRIP_SSE))  
   
 	__asm__ __volatile__ (
@@ -3413,7 +3553,10 @@ __attribute__((noinline,__target__("sse2"))) void sse2_delta8_rgba(const uint8_t
 }
 
 /* RGB32: BGRA SSE2 */
-__attribute__((noinline,__target__("sse2"))) void sse2_delta8_bgra(const uint8_t* col1, const uint8_t* col2, uint8_t* result, unsigned long count) {
+#if defined(__i386__) || defined(__x86_64__)
+__attribute__((noinline,__target__("sse2")))
+#endif
+void sse2_delta8_bgra(const uint8_t* col1, const uint8_t* col2, uint8_t* result, unsigned long count) {
 #if ((defined(__i386__) || defined(__x86_64__) || defined(ZM_KEEP_SSE)) && !defined(ZM_STRIP_SSE))  
   
 	__asm__ __volatile__ (
@@ -3468,7 +3611,10 @@ __attribute__((noinline,__target__("sse2"))) void sse2_delta8_bgra(const uint8_t
 }
 
 /* RGB32: ARGB SSE2 */
-__attribute__((noinline,__target__("sse2"))) void sse2_delta8_argb(const uint8_t* col1, const uint8_t* col2, uint8_t* result, unsigned long count) {
+#if defined(__i386__) || defined(__x86_64__)
+__attribute__((noinline,__target__("sse2")))
+#endif
+void sse2_delta8_argb(const uint8_t* col1, const uint8_t* col2, uint8_t* result, unsigned long count) {
 #if ((defined(__i386__) || defined(__x86_64__) || defined(ZM_KEEP_SSE)) && !defined(ZM_STRIP_SSE))  
   
 	__asm__ __volatile__ (
@@ -3524,7 +3670,10 @@ __attribute__((noinline,__target__("sse2"))) void sse2_delta8_argb(const uint8_t
 }
 
 /* RGB32: ABGR SSE2 */
-__attribute__((noinline,__target__("sse2"))) void sse2_delta8_abgr(const uint8_t* col1, const uint8_t* col2, uint8_t* result, unsigned long count) {
+#if defined(__i386__) || defined(__x86_64__)
+__attribute__((noinline,__target__("sse2")))
+#endif
+void sse2_delta8_abgr(const uint8_t* col1, const uint8_t* col2, uint8_t* result, unsigned long count) {
 #if ((defined(__i386__) || defined(__x86_64__) || defined(ZM_KEEP_SSE)) && !defined(ZM_STRIP_SSE))  
   
 	__asm__ __volatile__ (
@@ -3580,7 +3729,10 @@ __attribute__((noinline,__target__("sse2"))) void sse2_delta8_abgr(const uint8_t
 }
 
 /* RGB32: RGBA SSSE3 */
-__attribute__((noinline,__target__("ssse3"))) void ssse3_delta8_rgba(const uint8_t* col1, const uint8_t* col2, uint8_t* result, unsigned long count) {
+#if defined(__i386__) || defined(__x86_64__)
+__attribute__((noinline,__target__("ssse3")))
+#endif
+void ssse3_delta8_rgba(const uint8_t* col1, const uint8_t* col2, uint8_t* result, unsigned long count) {
 #if ((defined(__i386__) || defined(__x86_64__) || defined(ZM_KEEP_SSE)) && !defined(ZM_STRIP_SSE))  
 	
 	__asm__ __volatile__ (
@@ -3632,7 +3784,10 @@ __attribute__((noinline,__target__("ssse3"))) void ssse3_delta8_rgba(const uint8
 }
 
 /* RGB32: BGRA SSSE3 */
-__attribute__((noinline,__target__("ssse3"))) void ssse3_delta8_bgra(const uint8_t* col1, const uint8_t* col2, uint8_t* result, unsigned long count) {
+#if defined(__i386__) || defined(__x86_64__)
+__attribute__((noinline,__target__("ssse3")))
+#endif
+void ssse3_delta8_bgra(const uint8_t* col1, const uint8_t* col2, uint8_t* result, unsigned long count) {
 #if ((defined(__i386__) || defined(__x86_64__) || defined(ZM_KEEP_SSE)) && !defined(ZM_STRIP_SSE))  
 	
 	__asm__ __volatile__ (
@@ -3684,7 +3839,10 @@ __attribute__((noinline,__target__("ssse3"))) void ssse3_delta8_bgra(const uint8
 }
 
 /* RGB32: ARGB SSSE3 */
-__attribute__((noinline,__target__("ssse3"))) void ssse3_delta8_argb(const uint8_t* col1, const uint8_t* col2, uint8_t* result, unsigned long count) {
+#if defined(__i386__) || defined(__x86_64__)
+__attribute__((noinline,__target__("ssse3")))
+#endif
+void ssse3_delta8_argb(const uint8_t* col1, const uint8_t* col2, uint8_t* result, unsigned long count) {
 #if ((defined(__i386__) || defined(__x86_64__) || defined(ZM_KEEP_SSE)) && !defined(ZM_STRIP_SSE))  
 	
 	__asm__ __volatile__ (
@@ -3737,7 +3895,10 @@ __attribute__((noinline,__target__("ssse3"))) void ssse3_delta8_argb(const uint8
 }
 
 /* RGB32: ABGR SSSE3 */
-__attribute__((noinline,__target__("ssse3"))) void ssse3_delta8_abgr(const uint8_t* col1, const uint8_t* col2, uint8_t* result, unsigned long count) {
+#if defined(__i386__) || defined(__x86_64__)
+__attribute__((noinline,__target__("ssse3")))
+#endif
+void ssse3_delta8_abgr(const uint8_t* col1, const uint8_t* col2, uint8_t* result, unsigned long count) {
 #if ((defined(__i386__) || defined(__x86_64__) || defined(ZM_KEEP_SSE)) && !defined(ZM_STRIP_SSE))  
 	
 	__asm__ __volatile__ (
@@ -3989,7 +4150,10 @@ __attribute__((noinline)) void std_convert_yuyv_gray8(const uint8_t* col1, uint8
 }
 
 /* RGBA to grayscale SSSE3 */
-__attribute__((noinline,__target__("ssse3"))) void ssse3_convert_rgba_gray8(const uint8_t* col1, uint8_t* result, unsigned long count) {
+#if defined(__i386__) || defined(__x86_64__)
+__attribute__((noinline,__target__("ssse3")))
+#endif
+void ssse3_convert_rgba_gray8(const uint8_t* col1, uint8_t* result, unsigned long count) {
 #if ((defined(__i386__) || defined(__x86_64__) || defined(ZM_KEEP_SSE)) && !defined(ZM_STRIP_SSE))  
 
 	__asm__ __volatile__ (
@@ -4035,7 +4199,10 @@ __attribute__((noinline,__target__("ssse3"))) void ssse3_convert_rgba_gray8(cons
 }
 
 /* Converts a YUYV image into grayscale by extracting the Y channel */
-__attribute__((noinline,__target__("ssse3"))) void ssse3_convert_yuyv_gray8(const uint8_t* col1, uint8_t* result, unsigned long count) {
+#if defined(__i386__) || defined(__x86_64__)
+__attribute__((noinline,__target__("ssse3")))
+#endif
+void ssse3_convert_yuyv_gray8(const uint8_t* col1, uint8_t* result, unsigned long count) {
 #if ((defined(__i386__) || defined(__x86_64__) || defined(ZM_KEEP_SSE)) && !defined(ZM_STRIP_SSE))  
 	unsigned long i = 0;
   
@@ -4652,8 +4819,12 @@ __attribute__((noinline)) void std_deinterlace_4field_abgr(uint8_t* col1, uint8_
 }
 
 /* Grayscale SSSE3 */
-__attribute__((noinline,__target__("ssse3"))) void ssse3_deinterlace_4field_gray8(uint8_t* col1, uint8_t* col2, unsigned int threshold, unsigned int width, unsigned int height) {
-	
+#if defined(__i386__) || defined(__x86_64__)
+__attribute__((noinline,__target__("ssse3")))
+#endif
+void ssse3_deinterlace_4field_gray8(uint8_t* col1, uint8_t* col2, unsigned int threshold, unsigned int width, unsigned int height) {
+
+#if ((defined(__i386__) || defined(__x86_64__) || defined(ZM_KEEP_SSE)) && !defined(ZM_STRIP_SSE))
 	union {
 		uint32_t int32;
 		uint8_t int8a[4];
@@ -4662,11 +4833,11 @@ __attribute__((noinline,__target__("ssse3"))) void ssse3_deinterlace_4field_gray
 	threshold_mask.int8a[1] = 0;
 	threshold_mask.int8a[2] = threshold;
 	threshold_mask.int8a[3] = 0;
-	
+
 	unsigned long row_width = width;
 	uint8_t* max_ptr = col1 + (row_width * (height-2));
 	uint8_t* max_ptr2 = col1 + row_width;
-	
+
 	__asm__ __volatile__ (
 	/* Load the threshold */
 	"mov %5, %%eax\n\t"
@@ -4674,9 +4845,9 @@ __attribute__((noinline,__target__("ssse3"))) void ssse3_deinterlace_4field_gray
 	"pshufd $0x0, %%xmm4, %%xmm4\n\t"
 	/* Zero the temporary register */
 	"pxor %%xmm0, %%xmm0\n\t"
-	
+
 	"algo_ssse3_deinterlace_4field_gray8:\n\t"
-	
+
 	/* Load pabove into xmm1 and pnabove into xmm2 */
 	"movdqa (%0), %%xmm1\n\t"
 	"movdqa (%1), %%xmm2\n\t"
@@ -4685,11 +4856,11 @@ __attribute__((noinline,__target__("ssse3"))) void ssse3_deinterlace_4field_gray
 	"pminub %%xmm5, %%xmm2\n\t"
 	"psubb %%xmm2, %%xmm1\n\t"
 	"movdqa %%xmm1, %%xmm7\n\t" /* Backup of delta2 in xmm7 for now */
-	
+
 	/* Next row */
 	"add %4, %0\n\t"
 	"add %4, %1\n\t"
-	
+
 	/* Load pcurrent into xmm1 and pncurrent into xmm2 */
 	"movdqa (%0), %%xmm1\n\t"
 	"movdqa (%1), %%xmm2\n\t"
@@ -4697,17 +4868,17 @@ __attribute__((noinline,__target__("ssse3"))) void ssse3_deinterlace_4field_gray
 	"pmaxub %%xmm2, %%xmm1\n\t"
 	"pminub %%xmm6, %%xmm2\n\t"
 	"psubb %%xmm2, %%xmm1\n\t"
-	
+
 	"pavgb %%xmm7, %%xmm1\n\t"                         // Average the two deltas together
 	"movdqa %%xmm1, %%xmm2\n\t"
-	
+
 	/* Do the comparison on words instead of bytes because we don't have unsigned comparison */
 	"punpcklbw %%xmm0, %%xmm1\n\t"                     // Expand pixels 0-7 into words into xmm1
 	"punpckhbw %%xmm0, %%xmm2\n\t"                     // Expand pixels 8-15 into words into xmm2
 	"pcmpgtw %%xmm4, %%xmm1\n\t"                       // Compare average delta with threshold for pixels 0-7
 	"pcmpgtw %%xmm4, %%xmm2\n\t"                       // Compare average delta with threshold for pixels 8-15
 	"packsswb %%xmm2, %%xmm1\n\t"                      // Pack the comparison results into xmm1
-	
+
 	"movdqa (%0,%4), %%xmm2\n\t"                       // Load pbelow
 	"pavgb %%xmm5, %%xmm2\n\t"                         // Average pabove and pbelow
 	"pand %%xmm1, %%xmm2\n\t"                          // Filter out pixels in avg that shouldn't be copied
@@ -4715,24 +4886,24 @@ __attribute__((noinline,__target__("ssse3"))) void ssse3_deinterlace_4field_gray
 
 	"por %%xmm2, %%xmm1\n\t"                           // Put the new values in pcurrent
 	"movntdq %%xmm1, (%0)\n\t"                         // Write pcurrent
-	
+
 	"sub %4, %0\n\t"                                   // Restore pcurrent to pabove
 	"sub %4, %1\n\t"                                   // Restore pncurrent to pnabove
-	
+
 	/* Next pixels */
 	"add $0x10, %0\n\t"                                // Add 16 to pcurrent
 	"add $0x10, %1\n\t"                                // Add 16 to pncurrent
-	
+
 	/* Check if we reached the row end */
 	"cmp %2, %0\n\t"
 	"jb algo_ssse3_deinterlace_4field_gray8\n\t"       // Go for another iteration
-	
+
 	/* Next row */
 	"add %4, %0\n\t"                                   // Add width to pcurrent
 	"add %4, %1\n\t"                                   // Add width to pncurrent
 	"mov %0, %2\n\t"
 	"add %4, %2\n\t"                                   // Add width to max_ptr2
-	
+
 	/* Check if we reached the end */
 	"cmp %3, %0\n\t"
 	"jb algo_ssse3_deinterlace_4field_gray8\n\t"       // Go for another iteration
@@ -4746,11 +4917,11 @@ __attribute__((noinline,__target__("ssse3"))) void ssse3_deinterlace_4field_gray
 	"pminub %%xmm5, %%xmm2\n\t"
 	"psubb %%xmm2, %%xmm1\n\t"
 	"movdqa %%xmm1, %%xmm7\n\t" /* Backup of delta2 in xmm7 for now */
-	
+
 	/* Next row */
 	"add %4, %0\n\t"
 	"add %4, %1\n\t"
-	
+
 	/* Load pcurrent into xmm1 and pncurrent into xmm2 */
 	"movdqa (%0), %%xmm1\n\t"
 	"movdqa (%1), %%xmm2\n\t"
@@ -4758,17 +4929,17 @@ __attribute__((noinline,__target__("ssse3"))) void ssse3_deinterlace_4field_gray
 	"pmaxub %%xmm2, %%xmm1\n\t"
 	"pminub %%xmm6, %%xmm2\n\t"
 	"psubb %%xmm2, %%xmm1\n\t"
-	
+
 	"pavgb %%xmm7, %%xmm1\n\t"                         // Average the two deltas together
 	"movdqa %%xmm1, %%xmm2\n\t"
-	
+
 	/* Do the comparison on words instead of bytes because we don't have unsigned comparison */
 	"punpcklbw %%xmm0, %%xmm1\n\t"                     // Expand pixels 0-7 into words into xmm1
 	"punpckhbw %%xmm0, %%xmm2\n\t"                     // Expand pixels 8-15 into words into xmm2
 	"pcmpgtw %%xmm4, %%xmm1\n\t"                       // Compare average delta with threshold for pixels 0-7
 	"pcmpgtw %%xmm4, %%xmm2\n\t"                       // Compare average delta with threshold for pixels 8-15
 	"packsswb %%xmm2, %%xmm1\n\t"                      // Pack the comparison results into xmm1
-	
+
 	"pand %%xmm1, %%xmm5\n\t"                          // Filter out pixels in pabove that shouldn't be copied
 	"pandn %%xmm6, %%xmm1\n\t"                         // Filter out pixels in pcurrent that should be replaced
 
@@ -4778,18 +4949,25 @@ __attribute__((noinline,__target__("ssse3"))) void ssse3_deinterlace_4field_gray
 	: "r" (col1), "r" (col2), "r" (max_ptr2), "r" (max_ptr), "r" (row_width), "m" (threshold_mask.int32)
 	: "%eax", "%xmm0", "%xmm1", "%xmm2", "%xmm3", "%xmm4", "%xmm5", "%xmm6", "%xmm7", "cc", "memory"
 	);
+#else
+	Panic("SSE function called on a non x86\\x86-64 platform");
+#endif
 }
 
 /* RGBA SSSE3 */
-__attribute__((noinline,__target__("ssse3"))) void ssse3_deinterlace_4field_rgba(uint8_t* col1, uint8_t* col2, unsigned int threshold, unsigned int width, unsigned int height) {
+#if defined(__i386__) || defined(__x86_64__)
+__attribute__((noinline,__target__("ssse3")))
+#endif
+void ssse3_deinterlace_4field_rgba(uint8_t* col1, uint8_t* col2, unsigned int threshold, unsigned int width, unsigned int height) {
+#if ((defined(__i386__) || defined(__x86_64__) || defined(ZM_KEEP_SSE)) && !defined(ZM_STRIP_SSE))
 	__attribute__((aligned(16))) static const uint8_t movemask2[16] = {1,1,1,1,1,0,0,2,9,9,9,9,9,8,8,10};
-	
+
 	const uint32_t threshold_val = threshold;
-	
+
 	unsigned long row_width = width*4;
 	uint8_t* max_ptr = col1 + (row_width * (height-2));
 	uint8_t* max_ptr2 = col1 + row_width;
-	
+
 	__asm__ __volatile__ (
 	"mov $0x1F1F1F1F, %%eax\n\t"
 	"movd %%eax, %%xmm4\n\t"
@@ -4802,9 +4980,9 @@ __attribute__((noinline,__target__("ssse3"))) void ssse3_deinterlace_4field_rgba
 #endif
 	/* Zero the temporary register */
 	"pxor %%xmm0, %%xmm0\n\t"
-	
+
 	"algo_ssse3_deinterlace_4field_rgba:\n\t"
-	
+
 	/* Load pabove into xmm1 and pnabove into xmm2 */
 	"movdqa (%0), %%xmm1\n\t"
 	"movdqa (%1), %%xmm2\n\t"
@@ -4824,11 +5002,11 @@ __attribute__((noinline,__target__("ssse3"))) void ssse3_deinterlace_4field_rgba
 	"psadbw %%xmm0, %%xmm2\n\t"
 	"packuswb %%xmm2, %%xmm1\n\t"
 	"movdqa %%xmm1, %%xmm7\n\t" /* Backup of delta2 in xmm7 for now */
-	
+
 	/* Next row */
 	"add %4, %0\n\t"
 	"add %4, %1\n\t"
-	
+
 	/* Load pcurrent into xmm1 and pncurrent into xmm2 */
 	"movdqa (%0), %%xmm1\n\t"
 	"movdqa (%1), %%xmm2\n\t"
@@ -4847,7 +5025,7 @@ __attribute__((noinline,__target__("ssse3"))) void ssse3_deinterlace_4field_rgba
 	"pshufb %%xmm3, %%xmm2\n\t"
 	"psadbw %%xmm0, %%xmm2\n\t"
 	"packuswb %%xmm2, %%xmm1\n\t"
-	
+
 	"pavgb %%xmm7, %%xmm1\n\t"                         // Average the two deltas together
 
 #if defined(__x86_64__)
@@ -4855,7 +5033,7 @@ __attribute__((noinline,__target__("ssse3"))) void ssse3_deinterlace_4field_rgba
 #else
 	"movd %%eax, %%xmm7\n\t"                           // Setup the threshold
 	"pshufd $0x0, %%xmm7, %%xmm7\n\t"
-	
+
 	"pcmpgtd %%xmm7, %%xmm1\n\t"                       // Compare average delta with the threshold
 #endif
 	"movdqa (%0,%4), %%xmm2\n\t"                       // Load pbelow
@@ -4865,28 +5043,28 @@ __attribute__((noinline,__target__("ssse3"))) void ssse3_deinterlace_4field_rgba
 
 	"por %%xmm2, %%xmm1\n\t"                           // Put the new values in pcurrent
 	"movntdq %%xmm1, (%0)\n\t"                         // Write pcurrent
-	
+
 	"sub %4, %0\n\t"                                   // Restore pcurrent to pabove
 	"sub %4, %1\n\t"                                   // Restore pncurrent to pnabove
-	
+
 	/* Next pixels */
 	"add $0x10, %0\n\t"                                // Add 16 to pcurrent
 	"add $0x10, %1\n\t"                                // Add 16 to pncurrent
-	
+
 	/* Check if we reached the row end */
 	"cmp %2, %0\n\t"
 	"jb algo_ssse3_deinterlace_4field_rgba\n\t"        // Go for another iteration
-	
+
 	/* Next row */
 	"add %4, %0\n\t"                                   // Add width to pcurrent
 	"add %4, %1\n\t"                                   // Add width to pncurrent
 	"mov %0, %2\n\t"
 	"add %4, %2\n\t"                                   // Add width to max_ptr2
-	
+
 	/* Check if we reached the end */
 	"cmp %3, %0\n\t"
 	"jb algo_ssse3_deinterlace_4field_rgba\n\t"        // Go for another iteration
-	
+
 	/* Special case for the last line */
 	/* Load pabove into xmm1 and pnabove into xmm2 */
 	"movdqa (%0), %%xmm1\n\t"
@@ -4907,11 +5085,11 @@ __attribute__((noinline,__target__("ssse3"))) void ssse3_deinterlace_4field_rgba
 	"psadbw %%xmm0, %%xmm2\n\t"
 	"packuswb %%xmm2, %%xmm1\n\t"
 	"movdqa %%xmm1, %%xmm7\n\t" /* Backup of delta2 in xmm7 for now */
-	
+
 	/* Next row */
 	"add %4, %0\n\t"
 	"add %4, %1\n\t"
-	
+
 	/* Load pcurrent into xmm1 and pncurrent into xmm2 */
 	"movdqa (%0), %%xmm1\n\t"
 	"movdqa (%1), %%xmm2\n\t"
@@ -4930,7 +5108,7 @@ __attribute__((noinline,__target__("ssse3"))) void ssse3_deinterlace_4field_rgba
 	"pshufb %%xmm3, %%xmm2\n\t"
 	"psadbw %%xmm0, %%xmm2\n\t"
 	"packuswb %%xmm2, %%xmm1\n\t"
-	
+
 	"pavgb %%xmm7, %%xmm1\n\t"                         // Average the two deltas together
 
 #if defined(__x86_64__)
@@ -4938,7 +5116,7 @@ __attribute__((noinline,__target__("ssse3"))) void ssse3_deinterlace_4field_rgba
 #else
 	"movd %%eax, %%xmm7\n\t"                           // Setup the threshold
 	"pshufd $0x0, %%xmm7, %%xmm7\n\t"
-	
+
 	"pcmpgtd %%xmm7, %%xmm1\n\t"                       // Compare average delta with the threshold
 #endif
 	"pand %%xmm1, %%xmm5\n\t"                          // Filter out pixels in pabove that shouldn't be copied
@@ -4954,18 +5132,25 @@ __attribute__((noinline,__target__("ssse3"))) void ssse3_deinterlace_4field_rgba
 	: "%eax", "%xmm0", "%xmm1", "%xmm2", "%xmm3", "%xmm4", "%xmm5", "%xmm6", "%xmm7", "cc", "memory"
 #endif
 	);
+#else
+	Panic("SSE function called on a non x86\\x86-64 platform");
+#endif
 }
 
 /* BGRA SSSE3 */
-__attribute__((noinline,__target__("ssse3"))) void ssse3_deinterlace_4field_bgra(uint8_t* col1, uint8_t* col2, unsigned int threshold, unsigned int width, unsigned int height) {
+#if defined(__i386__) || defined(__x86_64__)
+__attribute__((noinline,__target__("ssse3")))
+#endif
+void ssse3_deinterlace_4field_bgra(uint8_t* col1, uint8_t* col2, unsigned int threshold, unsigned int width, unsigned int height) {
+#if ((defined(__i386__) || defined(__x86_64__) || defined(ZM_KEEP_SSE)) && !defined(ZM_STRIP_SSE))
 	__attribute__((aligned(16))) static const uint8_t movemask2[16] = {1,1,1,1,1,2,2,0,9,9,9,9,9,10,10,8};
-	
+
 	const uint32_t threshold_val = threshold;
-	
+
 	unsigned long row_width = width*4;
 	uint8_t* max_ptr = col1 + (row_width * (height-2));
 	uint8_t* max_ptr2 = col1 + row_width;
-	
+
 	__asm__ __volatile__ (
 	"mov $0x1F1F1F1F, %%eax\n\t"
 	"movd %%eax, %%xmm4\n\t"
@@ -4978,9 +5163,9 @@ __attribute__((noinline,__target__("ssse3"))) void ssse3_deinterlace_4field_bgra
 #endif
 	/* Zero the temporary register */
 	"pxor %%xmm0, %%xmm0\n\t"
-	
+
 	"algo_ssse3_deinterlace_4field_bgra:\n\t"
-	
+
 	/* Load pabove into xmm1 and pnabove into xmm2 */
 	"movdqa (%0), %%xmm1\n\t"
 	"movdqa (%1), %%xmm2\n\t"
@@ -5000,11 +5185,11 @@ __attribute__((noinline,__target__("ssse3"))) void ssse3_deinterlace_4field_bgra
 	"psadbw %%xmm0, %%xmm2\n\t"
 	"packuswb %%xmm2, %%xmm1\n\t"
 	"movdqa %%xmm1, %%xmm7\n\t" /* Backup of delta2 in xmm7 for now */
-	
+
 	/* Next row */
 	"add %4, %0\n\t"
 	"add %4, %1\n\t"
-	
+
 	/* Load pcurrent into xmm1 and pncurrent into xmm2 */
 	"movdqa (%0), %%xmm1\n\t"
 	"movdqa (%1), %%xmm2\n\t"
@@ -5023,7 +5208,7 @@ __attribute__((noinline,__target__("ssse3"))) void ssse3_deinterlace_4field_bgra
 	"pshufb %%xmm3, %%xmm2\n\t"
 	"psadbw %%xmm0, %%xmm2\n\t"
 	"packuswb %%xmm2, %%xmm1\n\t"
-	
+
 	"pavgb %%xmm7, %%xmm1\n\t"                         // Average the two deltas together
 
 #if defined(__x86_64__)
@@ -5031,7 +5216,7 @@ __attribute__((noinline,__target__("ssse3"))) void ssse3_deinterlace_4field_bgra
 #else
 	"movd %%eax, %%xmm7\n\t"                           // Setup the threshold
 	"pshufd $0x0, %%xmm7, %%xmm7\n\t"
-	
+
 	"pcmpgtd %%xmm7, %%xmm1\n\t"                       // Compare average delta with the threshold
 #endif
 	"movdqa (%0,%4), %%xmm2\n\t"                       // Load pbelow
@@ -5041,28 +5226,28 @@ __attribute__((noinline,__target__("ssse3"))) void ssse3_deinterlace_4field_bgra
 
 	"por %%xmm2, %%xmm1\n\t"                           // Put the new values in pcurrent
 	"movntdq %%xmm1, (%0)\n\t"                         // Write pcurrent
-	
+
 	"sub %4, %0\n\t"                                   // Restore pcurrent to pabove
 	"sub %4, %1\n\t"                                   // Restore pncurrent to pnabove
-	
+
 	/* Next pixels */
 	"add $0x10, %0\n\t"                                // Add 16 to pcurrent
 	"add $0x10, %1\n\t"                                // Add 16 to pncurrent
-	
+
 	/* Check if we reached the row end */
 	"cmp %2, %0\n\t"
 	"jb algo_ssse3_deinterlace_4field_bgra\n\t"        // Go for another iteration
-	
+
 	/* Next row */
 	"add %4, %0\n\t"                                   // Add width to pcurrent
 	"add %4, %1\n\t"                                   // Add width to pncurrent
 	"mov %0, %2\n\t"
 	"add %4, %2\n\t"                                   // Add width to max_ptr2
-	
+
 	/* Check if we reached the end */
 	"cmp %3, %0\n\t"
 	"jb algo_ssse3_deinterlace_4field_bgra\n\t"        // Go for another iteration
-	
+
 	/* Special case for the last line */
 	/* Load pabove into xmm1 and pnabove into xmm2 */
 	"movdqa (%0), %%xmm1\n\t"
@@ -5083,11 +5268,11 @@ __attribute__((noinline,__target__("ssse3"))) void ssse3_deinterlace_4field_bgra
 	"psadbw %%xmm0, %%xmm2\n\t"
 	"packuswb %%xmm2, %%xmm1\n\t"
 	"movdqa %%xmm1, %%xmm7\n\t" /* Backup of delta2 in xmm7 for now */
-	
+
 	/* Next row */
 	"add %4, %0\n\t"
 	"add %4, %1\n\t"
-	
+
 	/* Load pcurrent into xmm1 and pncurrent into xmm2 */
 	"movdqa (%0), %%xmm1\n\t"
 	"movdqa (%1), %%xmm2\n\t"
@@ -5106,7 +5291,7 @@ __attribute__((noinline,__target__("ssse3"))) void ssse3_deinterlace_4field_bgra
 	"pshufb %%xmm3, %%xmm2\n\t"
 	"psadbw %%xmm0, %%xmm2\n\t"
 	"packuswb %%xmm2, %%xmm1\n\t"
-	
+
 	"pavgb %%xmm7, %%xmm1\n\t"                         // Average the two deltas together
 
 #if defined(__x86_64__)
@@ -5114,7 +5299,7 @@ __attribute__((noinline,__target__("ssse3"))) void ssse3_deinterlace_4field_bgra
 #else
 	"movd %%eax, %%xmm7\n\t"                           // Setup the threshold
 	"pshufd $0x0, %%xmm7, %%xmm7\n\t"
-	
+
 	"pcmpgtd %%xmm7, %%xmm1\n\t"                       // Compare average delta with the threshold
 #endif
 	"pand %%xmm1, %%xmm5\n\t"                          // Filter out pixels in pabove that shouldn't be copied
@@ -5130,18 +5315,25 @@ __attribute__((noinline,__target__("ssse3"))) void ssse3_deinterlace_4field_bgra
 	: "%eax", "%xmm0", "%xmm1", "%xmm2", "%xmm3", "%xmm4", "%xmm5", "%xmm6", "%xmm7", "cc", "memory"
 #endif
 	);
+#else
+	Panic("SSE function called on a non x86\\x86-64 platform");
+#endif
 }
 
 /* ARGB SSSE3 */
-__attribute__((noinline,__target__("ssse3"))) void ssse3_deinterlace_4field_argb(uint8_t* col1, uint8_t* col2, unsigned int threshold, unsigned int width, unsigned int height) {
+#if defined(__i386__) || defined(__x86_64__)
+__attribute__((noinline,__target__("ssse3")))
+#endif
+void ssse3_deinterlace_4field_argb(uint8_t* col1, uint8_t* col2, unsigned int threshold, unsigned int width, unsigned int height) {
+#if ((defined(__i386__) || defined(__x86_64__) || defined(ZM_KEEP_SSE)) && !defined(ZM_STRIP_SSE))
 	__attribute__((aligned(16))) static const uint8_t movemask2[16] = {2,2,2,2,2,1,1,3,10,10,10,10,10,9,9,11};
-	
+
 	const uint32_t threshold_val = threshold;
-	
+
 	unsigned long row_width = width*4;
 	uint8_t* max_ptr = col1 + (row_width * (height-2));
 	uint8_t* max_ptr2 = col1 + row_width;
-	
+
 	__asm__ __volatile__ (
 	"mov $0x1F1F1F1F, %%eax\n\t"
 	"movd %%eax, %%xmm4\n\t"
@@ -5154,9 +5346,9 @@ __attribute__((noinline,__target__("ssse3"))) void ssse3_deinterlace_4field_argb
 #endif
 	/* Zero the temporary register */
 	"pxor %%xmm0, %%xmm0\n\t"
-	
+
 	"algo_ssse3_deinterlace_4field_argb:\n\t"
-	
+
 	/* Load pabove into xmm1 and pnabove into xmm2 */
 	"movdqa (%0), %%xmm1\n\t"
 	"movdqa (%1), %%xmm2\n\t"
@@ -5176,11 +5368,11 @@ __attribute__((noinline,__target__("ssse3"))) void ssse3_deinterlace_4field_argb
 	"psadbw %%xmm0, %%xmm2\n\t"
 	"packuswb %%xmm2, %%xmm1\n\t"
 	"movdqa %%xmm1, %%xmm7\n\t" /* Backup of delta2 in xmm7 for now */
-	
+
 	/* Next row */
 	"add %4, %0\n\t"
 	"add %4, %1\n\t"
-	
+
 	/* Load pcurrent into xmm1 and pncurrent into xmm2 */
 	"movdqa (%0), %%xmm1\n\t"
 	"movdqa (%1), %%xmm2\n\t"
@@ -5199,7 +5391,7 @@ __attribute__((noinline,__target__("ssse3"))) void ssse3_deinterlace_4field_argb
 	"pshufb %%xmm3, %%xmm2\n\t"
 	"psadbw %%xmm0, %%xmm2\n\t"
 	"packuswb %%xmm2, %%xmm1\n\t"
-	
+
 	"pavgb %%xmm7, %%xmm1\n\t"                         // Average the two deltas together
 
 #if defined(__x86_64__)
@@ -5207,7 +5399,7 @@ __attribute__((noinline,__target__("ssse3"))) void ssse3_deinterlace_4field_argb
 #else
 	"movd %%eax, %%xmm7\n\t"                           // Setup the threshold
 	"pshufd $0x0, %%xmm7, %%xmm7\n\t"
-	
+
 	"pcmpgtd %%xmm7, %%xmm1\n\t"                       // Compare average delta with the threshold
 #endif
 	"movdqa (%0,%4), %%xmm2\n\t"                       // Load pbelow
@@ -5217,28 +5409,28 @@ __attribute__((noinline,__target__("ssse3"))) void ssse3_deinterlace_4field_argb
 
 	"por %%xmm2, %%xmm1\n\t"                           // Put the new values in pcurrent
 	"movntdq %%xmm1, (%0)\n\t"                         // Write pcurrent
-	
+
 	"sub %4, %0\n\t"                                   // Restore pcurrent to pabove
 	"sub %4, %1\n\t"                                   // Restore pncurrent to pnabove
-	
+
 	/* Next pixels */
 	"add $0x10, %0\n\t"                                // Add 16 to pcurrent
 	"add $0x10, %1\n\t"                                // Add 16 to pncurrent
-	
+
 	/* Check if we reached the row end */
 	"cmp %2, %0\n\t"
 	"jb algo_ssse3_deinterlace_4field_argb\n\t"        // Go for another iteration
-	
+
 	/* Next row */
 	"add %4, %0\n\t"                                   // Add width to pcurrent
 	"add %4, %1\n\t"                                   // Add width to pncurrent
 	"mov %0, %2\n\t"
 	"add %4, %2\n\t"                                   // Add width to max_ptr2
-	
+
 	/* Check if we reached the end */
 	"cmp %3, %0\n\t"
 	"jb algo_ssse3_deinterlace_4field_argb\n\t"        // Go for another iteration
-	
+
 	/* Special case for the last line */
 	/* Load pabove into xmm1 and pnabove into xmm2 */
 	"movdqa (%0), %%xmm1\n\t"
@@ -5259,11 +5451,11 @@ __attribute__((noinline,__target__("ssse3"))) void ssse3_deinterlace_4field_argb
 	"psadbw %%xmm0, %%xmm2\n\t"
 	"packuswb %%xmm2, %%xmm1\n\t"
 	"movdqa %%xmm1, %%xmm7\n\t" /* Backup of delta2 in xmm7 for now */
-	
+
 	/* Next row */
 	"add %4, %0\n\t"
 	"add %4, %1\n\t"
-	
+
 	/* Load pcurrent into xmm1 and pncurrent into xmm2 */
 	"movdqa (%0), %%xmm1\n\t"
 	"movdqa (%1), %%xmm2\n\t"
@@ -5282,7 +5474,7 @@ __attribute__((noinline,__target__("ssse3"))) void ssse3_deinterlace_4field_argb
 	"pshufb %%xmm3, %%xmm2\n\t"
 	"psadbw %%xmm0, %%xmm2\n\t"
 	"packuswb %%xmm2, %%xmm1\n\t"
-	
+
 	"pavgb %%xmm7, %%xmm1\n\t"                         // Average the two deltas together
 
 #if defined(__x86_64__)
@@ -5290,7 +5482,7 @@ __attribute__((noinline,__target__("ssse3"))) void ssse3_deinterlace_4field_argb
 #else
 	"movd %%eax, %%xmm7\n\t"                           // Setup the threshold
 	"pshufd $0x0, %%xmm7, %%xmm7\n\t"
-	
+
 	"pcmpgtd %%xmm7, %%xmm1\n\t"                       // Compare average delta with the threshold
 #endif
 	"pand %%xmm1, %%xmm5\n\t"                          // Filter out pixels in pabove that shouldn't be copied
@@ -5306,18 +5498,25 @@ __attribute__((noinline,__target__("ssse3"))) void ssse3_deinterlace_4field_argb
 	: "%eax", "%xmm0", "%xmm1", "%xmm2", "%xmm3", "%xmm4", "%xmm5", "%xmm6", "%xmm7", "cc", "memory"
 #endif
 	);
+#else
+	Panic("SSE function called on a non x86\\x86-64 platform");
+#endif
 }
 
 /* ABGR SSSE3 */
-__attribute__((noinline,__target__("ssse3"))) void ssse3_deinterlace_4field_abgr(uint8_t* col1, uint8_t* col2, unsigned int threshold, unsigned int width, unsigned int height) {
+#if defined(__i386__) || defined(__x86_64__)
+__attribute__((noinline,__target__("ssse3")))
+#endif
+void ssse3_deinterlace_4field_abgr(uint8_t* col1, uint8_t* col2, unsigned int threshold, unsigned int width, unsigned int height) {
+#if ((defined(__i386__) || defined(__x86_64__) || defined(ZM_KEEP_SSE)) && !defined(ZM_STRIP_SSE))
 	__attribute__((aligned(16))) static const uint8_t movemask2[16] = {2,2,2,2,2,3,3,1,10,10,10,10,10,11,11,9};
-	
+
 	const uint32_t threshold_val = threshold;
-	
+
 	unsigned long row_width = width*4;
 	uint8_t* max_ptr = col1 + (row_width * (height-2));
 	uint8_t* max_ptr2 = col1 + row_width;
-	
+
 	__asm__ __volatile__ (
 	"mov $0x1F1F1F1F, %%eax\n\t"
 	"movd %%eax, %%xmm4\n\t"
@@ -5330,9 +5529,9 @@ __attribute__((noinline,__target__("ssse3"))) void ssse3_deinterlace_4field_abgr
 #endif
 	/* Zero the temporary register */
 	"pxor %%xmm0, %%xmm0\n\t"
-	
+
 	"algo_ssse3_deinterlace_4field_abgr:\n\t"
-	
+
 	/* Load pabove into xmm1 and pnabove into xmm2 */
 	"movdqa (%0), %%xmm1\n\t"
 	"movdqa (%1), %%xmm2\n\t"
@@ -5352,11 +5551,11 @@ __attribute__((noinline,__target__("ssse3"))) void ssse3_deinterlace_4field_abgr
 	"psadbw %%xmm0, %%xmm2\n\t"
 	"packuswb %%xmm2, %%xmm1\n\t"
 	"movdqa %%xmm1, %%xmm7\n\t" /* Backup of delta2 in xmm7 for now */
-	
+
 	/* Next row */
 	"add %4, %0\n\t"
 	"add %4, %1\n\t"
-	
+
 	/* Load pcurrent into xmm1 and pncurrent into xmm2 */
 	"movdqa (%0), %%xmm1\n\t"
 	"movdqa (%1), %%xmm2\n\t"
@@ -5375,7 +5574,7 @@ __attribute__((noinline,__target__("ssse3"))) void ssse3_deinterlace_4field_abgr
 	"pshufb %%xmm3, %%xmm2\n\t"
 	"psadbw %%xmm0, %%xmm2\n\t"
 	"packuswb %%xmm2, %%xmm1\n\t"
-	
+
 	"pavgb %%xmm7, %%xmm1\n\t"                         // Average the two deltas together
 
 #if defined(__x86_64__)
@@ -5383,7 +5582,7 @@ __attribute__((noinline,__target__("ssse3"))) void ssse3_deinterlace_4field_abgr
 #else
 	"movd %%eax, %%xmm7\n\t"                           // Setup the threshold
 	"pshufd $0x0, %%xmm7, %%xmm7\n\t"
-	
+
 	"pcmpgtd %%xmm7, %%xmm1\n\t"                       // Compare average delta with the threshold
 #endif
 	"movdqa (%0,%4), %%xmm2\n\t"                       // Load pbelow
@@ -5393,28 +5592,28 @@ __attribute__((noinline,__target__("ssse3"))) void ssse3_deinterlace_4field_abgr
 
 	"por %%xmm2, %%xmm1\n\t"                           // Put the new values in pcurrent
 	"movntdq %%xmm1, (%0)\n\t"                         // Write pcurrent
-	
+
 	"sub %4, %0\n\t"                                   // Restore pcurrent to pabove
 	"sub %4, %1\n\t"                                   // Restore pncurrent to pnabove
-	
+
 	/* Next pixels */
 	"add $0x10, %0\n\t"                                // Add 16 to pcurrent
 	"add $0x10, %1\n\t"                                // Add 16 to pncurrent
-	
+
 	/* Check if we reached the row end */
 	"cmp %2, %0\n\t"
 	"jb algo_ssse3_deinterlace_4field_abgr\n\t"        // Go for another iteration
-	
+
 	/* Next row */
 	"add %4, %0\n\t"                                   // Add width to pcurrent
 	"add %4, %1\n\t"                                   // Add width to pncurrent
 	"mov %0, %2\n\t"
 	"add %4, %2\n\t"                                   // Add width to max_ptr2
-	
+
 	/* Check if we reached the end */
 	"cmp %3, %0\n\t"
 	"jb algo_ssse3_deinterlace_4field_abgr\n\t"        // Go for another iteration
-	
+
 	/* Special case for the last line */
 	/* Load pabove into xmm1 and pnabove into xmm2 */
 	"movdqa (%0), %%xmm1\n\t"
@@ -5435,11 +5634,11 @@ __attribute__((noinline,__target__("ssse3"))) void ssse3_deinterlace_4field_abgr
 	"psadbw %%xmm0, %%xmm2\n\t"
 	"packuswb %%xmm2, %%xmm1\n\t"
 	"movdqa %%xmm1, %%xmm7\n\t" /* Backup of delta2 in xmm7 for now */
-	
+
 	/* Next row */
 	"add %4, %0\n\t"
 	"add %4, %1\n\t"
-	
+
 	/* Load pcurrent into xmm1 and pncurrent into xmm2 */
 	"movdqa (%0), %%xmm1\n\t"
 	"movdqa (%1), %%xmm2\n\t"
@@ -5458,7 +5657,7 @@ __attribute__((noinline,__target__("ssse3"))) void ssse3_deinterlace_4field_abgr
 	"pshufb %%xmm3, %%xmm2\n\t"
 	"psadbw %%xmm0, %%xmm2\n\t"
 	"packuswb %%xmm2, %%xmm1\n\t"
-	
+
 	"pavgb %%xmm7, %%xmm1\n\t"                         // Average the two deltas together
 
 #if defined(__x86_64__)
@@ -5466,7 +5665,7 @@ __attribute__((noinline,__target__("ssse3"))) void ssse3_deinterlace_4field_abgr
 #else
 	"movd %%eax, %%xmm7\n\t"                           // Setup the threshold
 	"pshufd $0x0, %%xmm7, %%xmm7\n\t"
-	
+
 	"pcmpgtd %%xmm7, %%xmm1\n\t"                       // Compare average delta with the threshold
 #endif
 	"pand %%xmm1, %%xmm5\n\t"                          // Filter out pixels in pabove that shouldn't be copied
@@ -5482,5 +5681,7 @@ __attribute__((noinline,__target__("ssse3"))) void ssse3_deinterlace_4field_abgr
 	: "%eax", "%xmm0", "%xmm1", "%xmm2", "%xmm3", "%xmm4", "%xmm5", "%xmm6", "%xmm7", "cc", "memory"
 #endif
 	);
+#else
+	Panic("SSE function called on a non x86\\x86-64 platform");
+#endif
 }
-
