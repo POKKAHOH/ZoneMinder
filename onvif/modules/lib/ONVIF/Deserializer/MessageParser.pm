@@ -1,4 +1,27 @@
-#!/usr/bin/perl
+# ==========================================================================
+#
+# ZoneMinder ONVIF Client module
+# Copyright (C) 2014  Jan M. Hochstein
+#
+# This program is free software; you can redistribute it and/or
+# modify it under the terms of the GNU General Public License
+# as published by the Free Software Foundation; either version 2
+# of the License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+#
+# ==========================================================================
+#
+# This module contains the implementation of a SOAP message parser
+#
+
 package ONVIF::Deserializer::MessageParser;
 use strict; use warnings;
 
@@ -249,7 +272,11 @@ sub _initialize {
             #
             $_method =~s{\.}{__}xg;
             $_method =~s{\-}{_}xg;
-            $list->[-1]->$_method( $current );
+            if ( $list->[-1]->can( $_method ) ) {
+              $list->[-1]->$_method( $current );
+              #} else {
+              #print ( "ERror " . $list->[-1] . " cannot $_method\n" );
+            }
 
             $current = pop @$list;          # step up in object hierarchy
 

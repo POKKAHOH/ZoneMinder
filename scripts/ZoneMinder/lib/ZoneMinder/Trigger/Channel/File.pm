@@ -15,7 +15,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+# Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 #
 # ==========================================================================
 #
@@ -62,7 +62,10 @@ sub open
     local *sfh;
     #sysopen( *sfh, $conn->{path}, O_NONBLOCK|O_RDONLY ) or croak( "Can't sysopen: $!" );
     #open( *sfh, "<".$conn->{path} ) or croak( "Can't open: $!" );
-    open( *sfh, "+<", $self->{path} ) or croak( "Can't open: $!" );
+    if ( ! open( *sfh, "+<", $self->{path} ) ) {
+		Error( "Can't open file at $$self{path}: $!" );
+		croak( "Can't open file at $$self{path}: $!" );
+	}
     $self->{state} = 'open';
     $self->{handle} = *sfh;
 }
@@ -73,7 +76,7 @@ __END__
 
 =head1 NAME
 
-ZoneMinder::Database - Perl extension for blah blah blah
+ZoneMinder::Trigger::Channel::File - ZOneMinder object for a file based trigger channel
 
 =head1 SYNOPSIS
 

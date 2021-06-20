@@ -15,7 +15,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+# Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 #
 # ==========================================================================
 #
@@ -63,9 +63,18 @@ sub open
     local *sfh;
     unlink( $self->{path} );
     my $saddr = sockaddr_un( $self->{path} );
-    socket( *sfh, PF_UNIX, SOCK_STREAM, 0 ) or croak( "Can't open socket: $!" );
-    bind( *sfh, $saddr ) or croak( "Can't bind: $!" );
-    listen( *sfh, SOMAXCONN ) or croak( "Can't listen: $!" );
+    if ( ! socket( *sfh, PF_UNIX, SOCK_STREAM, 0 ) ) {
+		Error( "Can't open unix socket at $$self{path}: $!" );
+		croak( "Can't open unix socket at $$self{path}: $!" );
+	}
+    if ( ! bind( *sfh, $saddr ) ) {
+		Error( "Can't bind unix socket at $$self{path}: $!" );
+		croak( "Can't bind unix socket at $$self{path}: $!" );
+	}
+    if ( ! listen( *sfh, SOMAXCONN ) ) {
+		Error( "Can't listen: $!" );
+		croak( "Can't listen: $!" );
+	}
     $self->{handle} = *sfh;
 }
 
@@ -93,12 +102,11 @@ __END__
 
 =head1 NAME
 
-ZoneMinder::Database - Perl extension for blah blah blah
+ZoneMinder::Trigger::Channel::Unix - Object for Unix socket channel
 
 =head1 SYNOPSIS
 
-  use ZoneMinder::Database;
-  blah blah blah
+See zmtrigger.pl 
 
 =head1 DESCRIPTION
 

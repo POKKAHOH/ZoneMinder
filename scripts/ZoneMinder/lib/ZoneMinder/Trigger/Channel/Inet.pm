@@ -15,7 +15,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+# Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 #
 # ==========================================================================
 #
@@ -61,12 +61,21 @@ sub open
 {
     my $self = shift;
     local *sfh;
-    my $saddr = sockaddr_in( $self->{port}, INADDR_ANY );
-    socket( *sfh, PF_INET, SOCK_STREAM, getprotobyname('tcp') )
-        or croak( "Can't open socket: $!" );
+    if ( ! socket( *sfh, PF_INET, SOCK_STREAM, getprotobyname('tcp') ) ) {
+        Error( "Can't open socket: $!" );
+        croak( "Can't open socket: $!" );
+	}
     setsockopt( *sfh, SOL_SOCKET, SO_REUSEADDR, 1 );
-    bind( *sfh, $saddr ) or croak( "Can't bind: $!" );
-    listen( *sfh, SOMAXCONN ) or croak( "Can't listen: $!" );
+
+    my $saddr = sockaddr_in( $self->{port}, INADDR_ANY );
+    if ( ! bind( *sfh, $saddr ) ) {
+		Error( "Can't bind to port $$self{port}: $!" );
+		croak( "Can't bind to port $$self{port}: $!" );
+	}
+    if ( ! listen( *sfh, SOMAXCONN ) ) {
+		Error( "Can't listen: $!" );
+		croak( "Can't listen: $!" );
+	}
     $self->{state} = 'open';
     $self->{handle} = *sfh;
 }
@@ -95,7 +104,7 @@ __END__
 
 =head1 NAME
 
-ZoneMinder::Database - Perl extension for blah blah blah
+ZoneMinder::Trigger::Channel::Inet
 
 =head1 SYNOPSIS
 
